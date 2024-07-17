@@ -1,5 +1,5 @@
-certificates/
 ca.*
+pem/
 
 
 # Byte-compiled / optimized / DLL files

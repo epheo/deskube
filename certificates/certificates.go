@@ -1,4 +1,4 @@
-package main
+package certificates
 
 import (
 	"crypto/x509"
@@ -14,41 +14,7 @@ import (
 	"github.com/cloudflare/cfssl/signer/local"
 )
 
-func main() {
-	// Generate CA
-	caCert, caKey, err := generateCA()
-	if err != nil {
-		log.Fatalf("Error generating CA: %v", err)
-	}
-
-	// Define all the certificates to generate
-	certificates := []struct {
-		CN     string
-		Hosts  []string
-		Config *config.SigningProfile
-	}{
-		//{"admin", nil, nil},
-		{"web", []string{"example.com"}, &config.SigningProfile{
-			Usage:        []string{"server auth"},
-			Expiry:       8760,
-			CAConstraint: config.CAConstraint{IsCA: false},
-		}},
-		{"app", []string{"app.example.com"}, &config.SigningProfile{
-			Usage:        []string{"server auth"},
-			Expiry:       8760,
-			CAConstraint: config.CAConstraint{IsCA: false},
-		}},
-	}
-
-	for _, cert := range certificates {
-		err := generateCert(cert.CN, cert.Hosts, caCert, caKey, cert.Config)
-		if err != nil {
-			log.Fatalf("Error generating %s certificate: %v", cert.CN, err)
-		}
-	}
-}
-
-func generateCA() ([]byte, []byte, error) {
+func GenerateCA() ([]byte, []byte, error) {
 	// Check if CA files exist
 	if _, err := os.Stat("ca.crt"); err == nil {
 		// CA files exist, load and return them
@@ -89,7 +55,7 @@ func generateCA() ([]byte, []byte, error) {
 	return caCert, caKey, nil
 }
 
-func generateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *config.SigningProfile) error {
+func GenerateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *config.SigningProfile) error {
 
 	// Parse the CA certificate
 	caCertBlock, _ := pem.Decode(caCertPEM)
@@ -150,7 +116,7 @@ func generateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *c
 
 	// Save the signed certificate and private key to files
 	// Define the directory where you want to save the certificate
-	dir := "certificates"
+	dir := "pem"
 
 	// Ensure the directory exists
 	err = os.MkdirAll(dir, 0755)

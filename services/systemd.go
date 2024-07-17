@@ -1,6 +1,7 @@
-package deskube
+package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -13,7 +14,7 @@ const serviceUnitName = "example-service.service"
 
 func systemd() {
 	// Check if the program was started by systemd
-	listeners, err := activation.Listeners(false)
+	listeners, err := activation.Listeners()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,7 +29,7 @@ func systemd() {
 }
 
 func createAndEnableService() {
-	conn, err := dbus.New()
+	conn, err := dbus.NewWithContext(context.TODO())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -69,7 +70,7 @@ WantedBy=default.target
 	}
 
 	// Enable the service to start on boot
-	err = conn.EnableUnitFiles([]string{tmpFile.Name()}, false, true)
+	_, _, err = conn.EnableUnitFilesContext(context.TODO(), []string{tmpFile.Name()}, false, true)
 	if err != nil {
 		log.Fatal(err)
 	}
