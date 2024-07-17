@@ -12,17 +12,26 @@ import (
 	"github.com/cloudflare/cfssl/initca"
 	"github.com/cloudflare/cfssl/signer"
 	"github.com/cloudflare/cfssl/signer/local"
+	"github.com/epheo/deskube/types"
 )
 
 func GenerateCA() ([]byte, []byte, error) {
+
+	dir := "out"
+	// Ensure the directory exists
+	err := os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Check if CA files exist
-	if _, err := os.Stat("ca.crt"); err == nil {
+	if _, err := os.Stat("out/ca.crt"); err == nil {
 		// CA files exist, load and return them
-		caCert, err := os.ReadFile("ca.crt")
+		caCert, err := os.ReadFile("out/ca.crt")
 		if err != nil {
 			return nil, nil, err
 		}
-		caKey, err := os.ReadFile("ca.key")
+		caKey, err := os.ReadFile("out/ca.key")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -43,11 +52,11 @@ func GenerateCA() ([]byte, []byte, error) {
 	}
 
 	// Save CA files
-	err = saveToFile("ca.crt", caCert)
+	err = saveToFile("out/ca.crt", caCert)
 	if err != nil {
 		return nil, nil, err
 	}
-	err = saveToFile("ca.key", caKey)
+	err = saveToFile("out/ca.key", caKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -55,22 +64,23 @@ func GenerateCA() ([]byte, []byte, error) {
 	return caCert, caKey, nil
 }
 
-func GenerateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *config.SigningProfile) error {
+// func GenerateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *config.SigningProfile) (cert []byte, key []byte, err error) {
+func GenerateCert(certData types.CertData, globalData types.GlobalData) (cert []byte, key []byte, err error) {
 
 	// Parse the CA certificate
-	caCertBlock, _ := pem.Decode(caCertPEM)
+	caCertBlock, _ := pem.Decode(globalData.CaCert)
 	if caCertBlock == nil {
-		return fmt.Errorf("failed to decode CA certificate")
+		return nil, nil, fmt.Errorf("failed to decode CA certificate")
 	}
 	caCert, err := x509.ParseCertificate(caCertBlock.Bytes)
 	if err != nil {
-		return fmt.Errorf("failed to parse CA certificate: %v", err)
+		return nil, nil, fmt.Errorf("failed to parse CA certificate: %v", err)
 	}
 
 	// Parse the CA private key
-	caKeyBlock, _ := pem.Decode(caKeyPEM)
+	caKeyBlock, _ := pem.Decode(globalData.CaKey)
 	if caKeyBlock == nil {
-		return fmt.Errorf("failed to decode CA key")
+		return nil, nil, fmt.Errorf("failed to decode CA key")
 	}
 	caKey, err := x509.ParseECPrivateKey(caKeyBlock.Bytes)
 	if err != nil {
@@ -79,30 +89,30 @@ func GenerateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *c
 
 	// Generate CSR
 	csrConfig := &csr.CertificateRequest{
-		CN: cn,
+		CN: certData.CN,
 		Names: []csr.Name{
 			{
 				C:  "AQ",
 				L:  "Antartica",
-				O:  "system:masters",
+				O:  certData.O,
 				OU: "Kubernetes",
 				ST: "South Pole",
 			},
 		},
-		Hosts:      hosts,
+		Hosts:      certData.Hosts,
 		KeyRequest: csr.NewKeyRequest(),
 	}
 	generatedCSR, generatedKey, err := csr.ParseRequest(csrConfig)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Prepare CA signer
-	SigningConfig := &config.Signing{Default: conf}
+	SigningConfig := &config.Signing{Default: certData.Config}
 
 	caSigner, err := local.NewSigner(caKey, caCert, signer.DefaultSigAlgo(caKey), SigningConfig)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Sign the certificate
@@ -111,33 +121,33 @@ func GenerateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *c
 		Profile: "kubernetes", // Specify the signing profile if needed
 	})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Save the signed certificate and private key to files
 	// Define the directory where you want to save the certificate
-	dir := "pem"
+	dir := "out/pem"
 
 	// Ensure the directory exists
 	err = os.MkdirAll(dir, 0755)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Save the signed certificate to the specified directory
-	certPath := dir + "/" + cn + "-cert.pem"
+	certPath := dir + "/" + certData.CN + "-cert.pem"
 	err = os.WriteFile(certPath, signedCert, 0644)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	keyPath := dir + "/" + cn + "-key.pem"
+	keyPath := dir + "/" + certData.CN + "-key.pem"
 	err = os.WriteFile(keyPath, generatedKey, 0600)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	return nil
+	return signedCert, generatedKey, nil
 }
 
 func saveToFile(filename string, data []byte) error {

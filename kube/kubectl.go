@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
+	// "os/exec"
 )
 
 func InstallKubectl() {
@@ -56,11 +56,11 @@ func InstallKubectl() {
 	}
 
 	// Move kubectl to /usr/local/bin
-	cmd := exec.Command("sudo", "install", "kubectl", "/usr/local/bin/")
-	if err := cmd.Run(); err != nil {
-		fmt.Println("Error installing kubectl:", err)
-		return
-	}
+	// cmd := exec.Command("sudo", "install", "kubectl", "/usr/local/bin/")
+	// if err := cmd.Run(); err != nil {
+	// 	fmt.Println("Error installing kubectl:", err)
+	// 	return
+	// }
 
 	fmt.Println("kubectl installed successfully")
 }
