@@ -4,9 +4,9 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,47 +25,50 @@ type Asset struct {
 	ContentType        string `json:"content_type"`
 }
 
-func GithubDownload(project string) error {
+func GithubDownload(project string, arch string) string {
 
 	dir := "out/bin"
 
 	// Ensure the directory exists
 	err := os.MkdirAll(dir, 0755)
 	if err != nil {
-		return err
+		return ""
 	}
 
-	url, contentType := getLatest(project)
+	url, contentType := getLatest(project, arch)
 	tokens := strings.Split(url, "/")
 	fileName := dir + "/" + tokens[len(tokens)-1]
 	if fileName == "" {
-		return errors.New("could not extract file name from URL")
+		log.Fatalf("could not extract file name from URL")
+		return ""
 	}
 	response, err := http.Get(url)
 	if err != nil {
-		return err
+		return ""
 	}
 	defer response.Body.Close()
 
 	if contentType == "application/gzip" {
 		// Handle gzip content
-		return extractTarGz(response.Body, fileName)
+		extractTarGz(response.Body, dir)
 	} else {
 		// Handle other content types
 		out, err := os.Create(fileName)
 		if err != nil {
-			return err
+			return ""
 		}
 		defer out.Close()
 
-		_, err = io.Copy(out, response.Body)
+		_, _ = io.Copy(out, response.Body)
 
 		fmt.Println("Downloaded", fileName)
-		return err
+		return ""
 	}
+
+	return fileName
 }
 
-func getLatest(project string) (url string, content_type string) {
+func getLatest(project string, arch string) (url string, content_type string) {
 
 	url = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", project)
 	// Make an HTTP GET request
@@ -92,12 +95,12 @@ func getLatest(project string) (url string, content_type string) {
 
 	// Find the asset for linux-amd64
 	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, "linux-amd64") {
+		if strings.Contains(asset.Name, arch) {
 			return asset.BrowserDownloadURL, asset.ContentType
 		}
 	}
 
-	fmt.Println("No binary found for linux-amd64")
+	log.Fatalf("No binary found for %s", arch)
 	return "", ""
 
 }

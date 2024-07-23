@@ -196,6 +196,7 @@ func main() {
 	//////////////////////////////////////////
 
 	kubeconfig.GenerateEncryptionConfig()
-	github.GithubDownload("etcd-io/etcd")
+
+	github.GithubDownload("etcd-io/etcd", "linux-amd64")
 
 }

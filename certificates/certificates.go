@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/cloudflare/cfssl/config"
 	"github.com/cloudflare/cfssl/csr"
@@ -134,14 +135,16 @@ func GenerateCert(certData types.CertData, globalData types.GlobalData) (cert []
 		return nil, nil, err
 	}
 
+	tokens := strings.Split(certData.CN, ":")
+
 	// Save the signed certificate to the specified directory
-	certPath := dir + "/" + certData.CN + "-cert.pem"
+	certPath := dir + "/" + tokens[len(tokens)-1] + ".pem"
 	err = os.WriteFile(certPath, signedCert, 0644)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	keyPath := dir + "/" + certData.CN + "-key.pem"
+	keyPath := dir + "/" + tokens[len(tokens)-1] + "-key.pem"
 	err = os.WriteFile(keyPath, generatedKey, 0600)
 	if err != nil {
 		return nil, nil, err

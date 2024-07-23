@@ -1,4 +1,4 @@
-package main
+package services
 
 import (
 	"context"
@@ -6,29 +6,14 @@ import (
 	"log"
 	"os"
 
-	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/coreos/go-systemd/v22/dbus"
+	"github.com/epheo/deskube/types"
 )
 
-const serviceUnitName = "example-service.service"
+func CreateAndEnableService(service types.Service) {
 
-func systemd() {
-	// Check if the program was started by systemd
-	listeners, err := activation.Listeners()
-	if err != nil {
-		log.Fatal(err)
-	}
+	serviceUnitName := fmt.Sprintf("%s.service", service.Name)
 
-	if len(listeners) > 0 {
-		// Running as a systemd service
-		runAsService()
-	} else {
-		// Not running as a systemd service, create and enable it
-		createAndEnableService()
-	}
-}
-
-func createAndEnableService() {
 	conn, err := dbus.NewWithContext(context.TODO())
 	if err != nil {
 		log.Fatal(err)
@@ -47,8 +32,8 @@ Group=nogroup
 Environment=HOME=/tmp
 
 [Install]
-WantedBy=default.target
-`, os.Args[0])
+WantedBy=multi-user.target
+`, service.ExecStart)
 
 	// Write the service unit content to a temporary file
 	tmpFile, err := os.CreateTemp("", "example-service")
@@ -64,7 +49,7 @@ WantedBy=default.target
 	}
 
 	// Reload systemd to pick up the new service unit
-	err = conn.Reload()
+	err = conn.ReloadContext(context.TODO())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -76,11 +61,4 @@ WantedBy=default.target
 	}
 
 	fmt.Printf("Systemd service %s created and enabled.\n", serviceUnitName)
-}
-
-func runAsService() {
-	// Your actual service code goes here.
-	// This is the code that will be executed when the program is started by systemd.
-	fmt.Println("Hello, systemd! (Running as a service)")
-	select {}
 }

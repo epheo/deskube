@@ -21,7 +21,8 @@ type CertData struct {
 }
 
 type Service struct {
-	Name   string
-	User   string
-	Server string
+	Name      string
+	User      string
+	Server    string
+	ExecStart string
 }
