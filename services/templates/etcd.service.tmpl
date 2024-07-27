@@ -1,0 +1,21 @@
+[Unit]
+Description=etcd
+Documentation=https://github.com/etcd-io/etcd
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/etcd \
+  --name {{.Hostname}} \
+  --initial-advertise-peer-urls https://{{.IpAddress}}:2380 \
+  --listen-peer-urls https://{{.IpAddress}}:2380 \
+  --listen-client-urls https://{{.IpAddress}}:2379,https://127.0.0.1:2379 \
+  --advertise-client-urls https://{{.IpAddress}}:2379 \
+  --initial-cluster-token etcd-cluster-0 \
+  --initial-cluster {{.Hostname}}=https://{{.IpAddress}}:2380 \
+  --initial-cluster-state new \
+  --data-dir=/var/lib/etcd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -19,12 +20,12 @@ func GenerateEncryptionConfig() {
 
 	// Check if the file exists
 	if _, err := os.Stat(configFileName); os.IsNotExist(err) {
-		fmt.Println("Encryption key not found, generating a new one")
+		log.Println("Encryption key not found, generating a new one")
 
 		// Generate a new encryption key
 		encryptionKey, err := generateEncryptionKey(32)
 		if err != nil {
-			fmt.Println("Error generating encryption key:", err)
+			log.Println("Error generating encryption key:", err)
 			return
 		}
 
@@ -45,14 +46,14 @@ resources:
 		// Write the content to encryption-config.yaml
 		err = os.WriteFile(configFileName, []byte(configContent), 0644)
 		if err != nil {
-			fmt.Println("Error writing encryption-config.yaml:", err)
+			log.Println("Error writing encryption-config.yaml:", err)
 			return
 		}
 	} else if err != nil {
-		fmt.Println("Error checking encryption-config.yaml:", err)
+		log.Println("Error checking encryption-config.yaml:", err)
 		return
 	} else {
-		fmt.Println("encryption-config.yaml already exists")
+		log.Println("encryption-config.yaml already exists")
 	}
 }
 

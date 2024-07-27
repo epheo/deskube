@@ -18,21 +18,29 @@ import (
 
 func GenerateCA() ([]byte, []byte, error) {
 
-	dir := "out"
+	// Define the directory where you want to save the certificate
+	dir := "out/pem"
+
 	// Ensure the directory exists
 	err := os.MkdirAll(dir, 0755)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// Ensure the directory exists
+	err = os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Check if CA files exist
-	if _, err := os.Stat("out/ca.crt"); err == nil {
+	if _, err := os.Stat("out/pem/ca.crt"); err == nil {
 		// CA files exist, load and return them
-		caCert, err := os.ReadFile("out/ca.crt")
+		caCert, err := os.ReadFile("out/pem/ca.crt")
 		if err != nil {
 			return nil, nil, err
 		}
-		caKey, err := os.ReadFile("out/ca.key")
+		caKey, err := os.ReadFile("out/pem/ca.key")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -53,11 +61,11 @@ func GenerateCA() ([]byte, []byte, error) {
 	}
 
 	// Save CA files
-	err = saveToFile("out/ca.crt", caCert)
+	err = saveToFile("out/pem/ca.crt", caCert)
 	if err != nil {
 		return nil, nil, err
 	}
-	err = saveToFile("out/ca.key", caKey)
+	err = saveToFile("out/pem/ca.key", caKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -67,6 +75,8 @@ func GenerateCA() ([]byte, []byte, error) {
 
 // func GenerateCert(cn string, hosts []string, caCertPEM, caKeyPEM []byte, conf *config.SigningProfile) (cert []byte, key []byte, err error) {
 func GenerateCert(certData types.CertData, globalData types.GlobalData) (cert []byte, key []byte, err error) {
+
+	dir := "out/pem"
 
 	// Parse the CA certificate
 	caCertBlock, _ := pem.Decode(globalData.CaCert)
@@ -81,7 +91,7 @@ func GenerateCert(certData types.CertData, globalData types.GlobalData) (cert []
 	// Parse the CA private key
 	caKeyBlock, _ := pem.Decode(globalData.CaKey)
 	if caKeyBlock == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA key")
+		return nil, nil, fmt.Errorf("failed to decode ca.key")
 	}
 	caKey, err := x509.ParseECPrivateKey(caKeyBlock.Bytes)
 	if err != nil {
@@ -126,25 +136,17 @@ func GenerateCert(certData types.CertData, globalData types.GlobalData) (cert []
 	}
 
 	// Save the signed certificate and private key to files
-	// Define the directory where you want to save the certificate
-	dir := "out/pem"
-
-	// Ensure the directory exists
-	err = os.MkdirAll(dir, 0755)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	tokens := strings.Split(certData.CN, ":")
 
 	// Save the signed certificate to the specified directory
-	certPath := dir + "/" + tokens[len(tokens)-1] + ".pem"
+	certPath := dir + "/" + tokens[len(tokens)-1] + ".crt"
 	err = os.WriteFile(certPath, signedCert, 0644)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	keyPath := dir + "/" + tokens[len(tokens)-1] + "-key.pem"
+	keyPath := dir + "/" + tokens[len(tokens)-1] + ".key"
 	err = os.WriteFile(keyPath, generatedKey, 0600)
 	if err != nil {
 		return nil, nil, err

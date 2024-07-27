@@ -3,6 +3,7 @@ package kubeconfig
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	// "os/exec"
@@ -15,14 +16,14 @@ func InstallKubectl() {
 	// Get stable version
 	resp, err := http.Get(stableVersionURL)
 	if err != nil {
-		fmt.Println("Error fetching stable version:", err)
+		log.Println("Error fetching stable version:", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	versionBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
+		log.Println("Error reading response body:", err)
 		return
 	}
 	version := string(versionBytes)
@@ -31,27 +32,27 @@ func InstallKubectl() {
 	kubectlURL := fmt.Sprintf("%s/%s/bin/linux/amd64/kubectl", url, version)
 	kubectlResp, err := http.Get(kubectlURL)
 	if err != nil {
-		fmt.Println("Error downloading kubectl:", err)
+		log.Println("Error downloading kubectl:", err)
 		return
 	}
 	defer kubectlResp.Body.Close()
 
 	out, err := os.Create("kubectl")
 	if err != nil {
-		fmt.Println("Error creating file:", err)
+		log.Println("Error creating file:", err)
 		return
 	}
 	defer out.Close()
 
 	_, err = io.Copy(out, kubectlResp.Body)
 	if err != nil {
-		fmt.Println("Error writing to file:", err)
+		log.Println("Error writing to file:", err)
 		return
 	}
 
 	// Make kubectl executable
 	if err := os.Chmod("kubectl", 0755); err != nil {
-		fmt.Println("Error changing file permissions:", err)
+		log.Println("Error changing file permissions:", err)
 		return
 	}
 
@@ -62,5 +63,5 @@ func InstallKubectl() {
 	// 	return
 	// }
 
-	fmt.Println("kubectl installed successfully")
+	log.Println("kubectl installed successfully")
 }

@@ -61,11 +61,11 @@ func GithubDownload(project string, arch string) string {
 
 		_, _ = io.Copy(out, response.Body)
 
-		fmt.Println("Downloaded", fileName)
+		log.Println("Downloaded", fileName)
 		return ""
 	}
 
-	return fileName
+	return dir
 }
 
 func getLatest(project string, arch string) (url string, content_type string) {
@@ -74,7 +74,7 @@ func getLatest(project string, arch string) (url string, content_type string) {
 	// Make an HTTP GET request
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Println("Error fetching release information:", err)
+		log.Println("Error fetching release information:", err)
 		return "", ""
 	}
 	defer resp.Body.Close()
@@ -82,14 +82,14 @@ func getLatest(project string, arch string) (url string, content_type string) {
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
+		log.Println("Error reading response body:", err)
 		return "", ""
 	}
 
 	// Parse the JSON response
 	var release GitHubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		fmt.Println("Error parsing JSON response:", err)
+		log.Println("Error parsing JSON response:", err)
 		return "", ""
 	}
 
@@ -143,6 +143,6 @@ func extractTarGz(gzipStream io.Reader, dir string) error {
 			outFile.Close()
 		}
 	}
-	fmt.Println("Extracted to", dir)
+	log.Println("Extracted to", dir)
 	return nil
 }

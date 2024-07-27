@@ -2,6 +2,7 @@ package kubeconfig
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/epheo/deskube/types"
@@ -22,7 +23,7 @@ func GenerateKubeconfig(globalData types.GlobalData, service types.Service, cert
 	config := api.NewConfig()
 
 	// Load CA certificate
-	caCert, err := os.ReadFile("out/ca.crt")
+	caCert, err := os.ReadFile("out/pem/ca.crt")
 	if err != nil {
 		return
 	}
@@ -50,9 +51,9 @@ func GenerateKubeconfig(globalData types.GlobalData, service types.Service, cert
 
 	// Save kubeconfig
 	if err := clientcmd.WriteToFile(*config, kubeconfigPath); err != nil {
-		fmt.Printf("Failed to write kubeconfig: %v\n", err)
+		log.Printf("Failed to write kubeconfig: %v\n", err)
 		return
 	}
 
-	fmt.Println("Kubeconfig set up successfully")
+	log.Println("Kubeconfig set up successfully")
 }

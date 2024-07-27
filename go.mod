@@ -3,8 +3,10 @@ module github.com/epheo/deskube
 go 1.22.5
 
 require (
+	github.com/bluet/syspkg v0.1.4
 	github.com/cloudflare/cfssl v1.6.5
 	github.com/coreos/go-systemd/v22 v22.5.0
+	github.com/opencontainers/selinux v1.11.0
 	k8s.io/client-go v0.30.2
 )
 

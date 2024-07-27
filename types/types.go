@@ -11,6 +11,7 @@ type GlobalData struct {
 	ClusterIp     string
 	ClusterName   string
 	ClusterDomain string
+	Hostname      string
 }
 
 type CertData struct {
