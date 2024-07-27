@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/cloudflare/cfssl/config"
 	"github.com/epheo/deskube/certificates"
@@ -17,8 +18,8 @@ func InstallKubeApiServer(globalData types.GlobalData) {
 		O:     "Kubernetes",
 		Hosts: []string{"kubernetes", "kubernetes.default", "kubernetes.default.svc", "kubernetes.default.svc.cluster", fmt.Sprintf("kubernetes.svc.%s", globalData.ClusterDomain), "127.0.0.1", globalData.ClusterIp, globalData.IpAddress},
 		Config: &config.SigningProfile{
-			Usage:        []string{"server auth"},
-			Expiry:       8760,
+			Usage:        []string{"signing", "key encipherment", "server auth", "client auth"},
+			Expiry:       time.Hour * 24 * 365 * 10,
 			CAConstraint: config.CAConstraint{IsCA: false},
 		},
 	}

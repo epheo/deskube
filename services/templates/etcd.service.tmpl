@@ -1,21 +1,33 @@
+# https://raw.githubusercontent.com/etcd-io/etcd/main/contrib/systemd/etcd.service
+
 [Unit]
-Description=etcd
+Description=etcd key-value store
 Documentation=https://github.com/etcd-io/etcd
+After=network-online.target local-fs.target remote-fs.target time-sync.target
+Wants=network-online.target local-fs.target remote-fs.target time-sync.target
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/etcd \
-  --name {{.Hostname}} \
-  --initial-advertise-peer-urls https://{{.IpAddress}}:2380 \
-  --listen-peer-urls https://{{.IpAddress}}:2380 \
-  --listen-client-urls https://{{.IpAddress}}:2379,https://127.0.0.1:2379 \
-  --advertise-client-urls https://{{.IpAddress}}:2379 \
-  --initial-cluster-token etcd-cluster-0 \
-  --initial-cluster {{.Hostname}}=https://{{.IpAddress}}:2380 \
-  --initial-cluster-state new \
-  --data-dir=/var/lib/etcd
-Restart=on-failure
-RestartSec=5
+Environment=ETCD_DATA_DIR=/var/lib/etcd
+Environment=ETCD_NAME={{.Hostname}}
+Environment=ETCD_CERT_FILE=/etc/etcd/kubernetes.crt
+Environment=ETCD_KEY_FILE=/etc/etcd/kubernetes.key
+Environment=ETCD_PEER_CERT_FILE=/etc/etcd/kubernetes.crt
+Environment=ETCD_PEER_KEY_FILE=/etc/etcd/kubernetes.key
+Environment=ETCD_TRUSTED_CA_FILE=/etc/etcd/ca.crt
+Environment=ETCD_PEER_TRUSTED_CA_FILE=/etc/etcd/ca.crt
+Environment=ETCD_PEER_CLIENT_CERT_AUTH=true
+Environment=ETCD_CLIENT_CERT_AUTH=true
+Environment=ETCD_INITIAL_ADVERTISE_PEER_URLS=https://{{.IpAddress}}:2380
+Environment=ETCD_LISTEN_PEER_URLS=https://{{.IpAddress}}:2380
+Environment=ETCD_LISTEN_CLIENT_URLS=https://{{.IpAddress}}:2379,https://127.0.0.1:2379
+Environment=ETCD_ADVERTISE_CLIENT_URLS=https://{{.IpAddress}}:2379
+Environment=ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster-0
+Environment=ETCD_INITIAL_CLUSTER='{{.Hostname}}=https://{{.IpAddress}}:2380'
+Environment=ETCD_INITIAL_CLUSTER_STATE=new
+ExecStart=/usr/local/bin/etcd
+Restart=always
+RestartSec=10s
 
 [Install]
 WantedBy=multi-user.target

@@ -101,3 +101,5 @@ func InstallEtcd(globalData types.GlobalData) {
 	log.Printf("Etcd output:\n%s\n", string(output))
 
 }
+
+//sudo ETCDCTL_API=3 /usr/local/bin/etcdctl member list --endpoints=https://192.168.178.101:2379 --cacert=/etc/etcd/ca.crt --cert=/etc/etcd/kubernetes.crt --key=/etc/etcd/kubernetes.key

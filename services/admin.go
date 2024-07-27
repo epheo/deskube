@@ -2,6 +2,7 @@ package services
 
 import (
 	"log"
+	"time"
 
 	"github.com/cloudflare/cfssl/config"
 	"github.com/epheo/deskube/certificates"
@@ -23,8 +24,8 @@ func InstallAdmin(globalData types.GlobalData) {
 		O:     "system:masters",
 		Hosts: []string{""},
 		Config: &config.SigningProfile{
-			Usage:        []string{"server auth"},
-			Expiry:       8760,
+			Usage:        []string{"signing", "key encipherment", "server auth", "client auth"},
+			Expiry:       time.Hour * 24 * 365 * 10,
 			CAConstraint: config.CAConstraint{IsCA: false},
 		},
 	}

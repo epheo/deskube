@@ -52,7 +52,7 @@ func GenerateCA() ([]byte, []byte, error) {
 		CN:         "Kubernetes",
 		KeyRequest: csr.NewKeyRequest(),
 		CA: &csr.CAConfig{
-			Expiry: "8760h",
+			Expiry: "87600h",
 		},
 	}
 	caCert, _, caKey, err := initca.New(req)
