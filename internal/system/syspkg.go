@@ -1,26 +1,21 @@
 package system
 
 import (
-	"github.com/bluet/syspkg"
+	"fmt"
 	"log"
+	"os/exec"
 )
 
 func InstallSysPkg(pkgNames []string) {
-	// Initialize SysPkg with all available package managers on current system
-	includeOptions := syspkg.IncludeOptions{
-		AllAvailable: true,
-	}
-	syspkgManagers, err := syspkg.New(includeOptions)
-	if err != nil {
-		log.Printf("Error initializing SysPkg: %v\n", err)
-		return
-	}
-	pkgManager := syspkgManagers.GetPackageManager("")
+	// Define the dnf command and arguments
+	cmd := exec.Command("sudo", append([]string{"dnf", "install", "-y"}, pkgNames...)...)
 
-	// Install packages
-	_, err = pkgManager.Install(pkgNames, nil)
+	// Execute the command and capture the output
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Error installing package %s: %v\n", pkgNames, err)
-		return
+		log.Fatalf("Failed to execute command: %v", err)
 	}
+
+	// Print the output of the command
+	fmt.Printf("Command output:\n%s\n", string(output))
 }

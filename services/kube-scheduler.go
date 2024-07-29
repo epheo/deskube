@@ -13,7 +13,6 @@ import (
 func InstallKubeScheduler(globalData types.GlobalData) {
 
 	service := types.Service{
-		Name:   "kube-scheduler",
 		User:   "system:kube-scheduler",
 		Server: "127.0.0.1",
 	}

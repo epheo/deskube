@@ -1,6 +1,8 @@
 package system
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"io"
 	"log"
 	"os"
@@ -108,5 +110,47 @@ func TemplateFile(templatePath string, destinationPath string, data interface{})
 	}
 	log.Printf("Template written to %s successfully", outputFile.Name())
 
+	return nil
+}
+
+// extractTarGz extracts a .tar.gz file from an io.Reader and writes the contents to the specified directory.
+func ExtractTarGz(gzipStream io.Reader, dir string) error {
+	uncompressedStream, err := gzip.NewReader(gzipStream)
+	if err != nil {
+		return err
+	}
+	defer uncompressedStream.Close()
+
+	tarReader := tar.NewReader(uncompressedStream)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		// Construct the path to extract to
+		path := filepath.Join(dir, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(path, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			outFile, err := os.Create(path)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outFile, tarReader); err != nil {
+				outFile.Close()
+				return err
+			}
+			outFile.Close()
+		}
+	}
+	log.Println("Extracted to", dir)
 	return nil
 }

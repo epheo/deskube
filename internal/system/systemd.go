@@ -32,7 +32,7 @@ func EnableStartService(servicesNames []string) {
 	for _, serviceName := range servicesNames {
 		tokens := strings.Split(serviceName, "/")
 		unitName := tokens[len(tokens)-1]
-		_, err = conn.StartUnitContext(context.TODO(), unitName, "replace", nil)
+		_, err = conn.ReloadOrRestartUnitContext(context.TODO(), unitName, "replace", nil)
 		if err != nil {
 			log.Fatal(err)
 		}

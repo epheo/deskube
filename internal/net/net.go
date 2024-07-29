@@ -2,7 +2,10 @@ package net
 
 import (
 	"fmt"
+	"log"
 	"net"
+	"net/http"
+	"time"
 )
 
 func GetIpAddress() string {
@@ -60,4 +63,38 @@ func getIPv4AddressAndSubnet(iface *net.Interface) (string, string, error) {
 		}
 	}
 	return "", "", fmt.Errorf("no IPv4 address found for interface %s", iface.Name)
+}
+
+func WaitForEndpoint(url string, hostHeader string, timeout time.Duration, interval time.Duration) bool {
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Host", hostHeader)
+
+	start := time.Now()
+	for {
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Request failed: %v", err)
+		} else {
+			if resp.StatusCode == http.StatusOK {
+				log.Println("Received 200 OK")
+				return true
+			}
+			resp.Body.Close()
+		}
+
+		if time.Since(start) > timeout {
+			log.Println("Timeout reached, exiting")
+			break
+		}
+
+		time.Sleep(interval)
+	}
+
+	log.Println("Failed to receive 200 OK within the timeout period")
+	return false
 }

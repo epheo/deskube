@@ -13,7 +13,6 @@ import (
 func InstallWorker(globalData types.GlobalData) {
 
 	service := types.Service{
-		Name:   "worker",
 		User:   "system:node:worker",
 		Server: globalData.IpAddress,
 	}

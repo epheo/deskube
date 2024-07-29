@@ -28,4 +28,20 @@ func InstallKubeApiServer(globalData types.GlobalData) {
 		log.Fatalf("Error generating %s certificate: %v", certData.CN, err)
 	}
 
+	// Define the certificate to generate
+	certData = types.CertData{
+		CN:    "service-account",
+		O:     "Kubernetes",
+		Hosts: []string{""},
+		Config: &config.SigningProfile{
+			Usage:        []string{"signing", "key encipherment", "server auth", "client auth"},
+			Expiry:       time.Hour * 24 * 365 * 10,
+			CAConstraint: config.CAConstraint{IsCA: false},
+		},
+	}
+	_, _, err = certificates.GenerateCert(certData, globalData)
+	if err != nil {
+		log.Fatalf("Error generating %s certificate: %v", certData.CN, err)
+	}
+
 }

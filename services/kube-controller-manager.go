@@ -13,7 +13,6 @@ import (
 func InstallKubeControllerManager(globalData types.GlobalData) {
 
 	service := types.Service{
-		Name:   "kube-controller-manager",
 		User:   "system:kube-controller-manager",
 		Server: "127.0.0.1",
 	}

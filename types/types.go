@@ -5,13 +5,16 @@ import (
 )
 
 type GlobalData struct {
-	CaKey         []byte
-	CaCert        []byte
-	IpAddress     string
-	ClusterIp     string
-	ClusterName   string
-	ClusterDomain string
-	Hostname      string
+	CaKey          []byte
+	CaCert         []byte
+	IpAddress      string
+	ClusterIp      string
+	ClusterDNS     string
+	ClusterName    string
+	ClusterDomain  string
+	ClusterNetwork string
+	Hostname       string
+	ServiceNetwork string
 }
 
 type CertData struct {

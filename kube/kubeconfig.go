@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/epheo/deskube/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -12,7 +13,10 @@ import (
 
 func GenerateKubeconfig(globalData types.GlobalData, service types.Service, cert []byte, key []byte) {
 	dir := "out/kubeconfig"
-	kubeconfigPath := fmt.Sprintf("%s/%s.kubeconfig", dir, service.Name)
+
+	tokens := strings.Split(service.User, ":")
+	fileName := tokens[len(tokens)-1]
+	kubeconfigPath := fmt.Sprintf("%s/%s.kubeconfig", dir, fileName)
 
 	// Ensure the directory exists
 	err := os.MkdirAll(dir, 0755)
@@ -35,7 +39,7 @@ func GenerateKubeconfig(globalData types.GlobalData, service types.Service, cert
 	}
 
 	// Set Credentials
-	config.AuthInfos[fmt.Sprintf("system:node:%s", service.Name)] = &api.AuthInfo{
+	config.AuthInfos[service.User] = &api.AuthInfo{
 		ClientCertificateData: []byte(cert),
 		ClientKeyData:         []byte(key),
 	}

@@ -4,8 +4,9 @@ import (
 	"log"
 
 	"github.com/epheo/deskube/certificates"
-	//"github.com/epheo/deskube/internal/net"
+	"github.com/epheo/deskube/internal/net"
 	"github.com/epheo/deskube/kube"
+	"github.com/epheo/deskube/nodes"
 	"github.com/epheo/deskube/services"
 	"github.com/epheo/deskube/types"
 )
@@ -19,14 +20,16 @@ func main() {
 	}
 
 	globalData := types.GlobalData{
-		CaKey:  caKey,
-		CaCert: caCert,
-		//IpAddress:     net.GetIpAddress(),
-		IpAddress:     "127.0.0.1",
-		ClusterIp:     "10.32.0.1",
-		ClusterName:   "deskube",
-		ClusterDomain: "cluster.local",
-		Hostname:      "deskube",
+		CaKey:          caKey,
+		CaCert:         caCert,
+		IpAddress:      net.GetIpAddress(),
+		ClusterIp:      "10.32.0.1",
+		ClusterDNS:     "10.32.0.10",
+		ClusterName:    "deskube",
+		ClusterDomain:  "cluster.local",
+		ClusterNetwork: "10.200.0.0/16",
+		Hostname:       "deskube",
+		ServiceNetwork: "10.32.0.0/24",
 	}
 
 	services.InstallAdmin(globalData)
@@ -44,5 +47,7 @@ func main() {
 	kubeconfig.GenerateEncryptionConfig()
 
 	services.InstallEtcd(globalData)
+
+	nodes.Controller(globalData)
 
 }

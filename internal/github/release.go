@@ -1,16 +1,15 @@
 package github
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/epheo/deskube/internal/system"
 )
 
 // GitHubRelease represents the structure of the release information from GitHub API
@@ -50,7 +49,7 @@ func GithubDownload(project string, arch string) string {
 
 	if contentType == "application/gzip" {
 		// Handle gzip content
-		extractTarGz(response.Body, dir)
+		system.ExtractTarGz(response.Body, dir)
 	} else {
 		// Handle other content types
 		out, err := os.Create(fileName)
@@ -103,46 +102,4 @@ func getLatest(project string, arch string) (url string, content_type string) {
 	log.Fatalf("No binary found for %s", arch)
 	return "", ""
 
-}
-
-// extractTarGz extracts a .tar.gz file from an io.Reader and writes the contents to the specified directory.
-func extractTarGz(gzipStream io.Reader, dir string) error {
-	uncompressedStream, err := gzip.NewReader(gzipStream)
-	if err != nil {
-		return err
-	}
-	defer uncompressedStream.Close()
-
-	tarReader := tar.NewReader(uncompressedStream)
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		// Construct the path to extract to
-		path := filepath.Join(dir, header.Name)
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(path, 0755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			outFile, err := os.Create(path)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
-				return err
-			}
-			outFile.Close()
-		}
-	}
-	log.Println("Extracted to", dir)
-	return nil
 }

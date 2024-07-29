@@ -13,7 +13,6 @@ import (
 func InstallAdmin(globalData types.GlobalData) {
 
 	service := types.Service{
-		Name:   "admin",
 		User:   "admin",
 		Server: "127.0.0.1",
 	}

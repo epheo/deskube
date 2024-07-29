@@ -13,7 +13,6 @@ import (
 func InstallKubeProxy(globalData types.GlobalData) {
 
 	service := types.Service{
-		Name:   "kube-proxy",
 		User:   "system:kube-proxy",
 		Server: globalData.IpAddress,
 	}
