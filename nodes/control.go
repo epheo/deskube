@@ -1,11 +1,17 @@
 package nodes
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"time"
+
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/epheo/deskube/internal/googlestorage"
 	"github.com/epheo/deskube/internal/net"
@@ -127,4 +133,77 @@ func Controller(globalData types.GlobalData) {
 		3*time.Second,
 	)
 
+	// Load kubeconfig file
+	kubeconfig := "out/kubeconfig/admin.kubeconfig"
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		log.Fatalf("Error loading kubeconfig: %v", err)
+	}
+
+	// Create Kubernetes client
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatalf("Error creating Kubernetes client: %v", err)
+	}
+
+	// Define the ClusterRole resource
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "system:kube-apiserver-to-kubelet",
+			Annotations: map[string]string{
+				"rbac.authorization.kubernetes.io/autoupdate": "true",
+			},
+			Labels: map[string]string{
+				"kubernetes.io/bootstrapping": "rbac-defaults",
+			},
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{
+					"nodes/proxy",
+					"nodes/stats",
+					"nodes/log",
+					"nodes/spec",
+					"nodes/metrics",
+				},
+				Verbs: []string{"*"},
+			},
+		},
+	}
+
+	// Create the ClusterRole resource in the cluster
+	_, err = clientset.RbacV1().ClusterRoles().Create(context.TODO(), clusterRole, metav1.CreateOptions{})
+	if err != nil {
+		log.Fatalf("Error creating ClusterRole: %v", err)
+	}
+
+	log.Println("ClusterRole created successfully")
+
+	// Define the ClusterRoleBinding resource
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "system:kube-apiserver",
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     "system:kube-apiserver-to-kubelet",
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "User",
+				Name:     "kubernetes",
+			},
+		},
+	}
+
+	// Create the ClusterRoleBinding resource in the cluster
+	_, err = clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), clusterRoleBinding, metav1.CreateOptions{})
+	if err != nil {
+		log.Fatalf("Error creating ClusterRoleBinding: %v", err)
+	}
+
+	log.Println("ClusterRoleBinding created successfully")
 }

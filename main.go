@@ -5,7 +5,7 @@ import (
 
 	"github.com/epheo/deskube/certificates"
 	"github.com/epheo/deskube/internal/net"
-	"github.com/epheo/deskube/kube"
+	"github.com/epheo/deskube/k8s"
 	"github.com/epheo/deskube/nodes"
 	"github.com/epheo/deskube/services"
 	"github.com/epheo/deskube/types"
@@ -44,7 +44,7 @@ func main() {
 
 	services.InstallKubeApiServer(globalData)
 
-	kubeconfig.GenerateEncryptionConfig()
+	k8s.GenerateEncryptionConfig()
 
 	services.InstallEtcd(globalData)
 

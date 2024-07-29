@@ -15,7 +15,7 @@ import (
 
 func InstallEtcd(globalData types.GlobalData) {
 
-	sourceDir := github.GithubDownload("etcd-io/etcd", "linux-amd64")
+	sourceDir := github.GithubDownload("etcd-io/etcd", "linux-amd64", "out/bin")
 	destinationDir := "/usr/local/bin"
 	log.Printf("Source dir: %s\n", sourceDir)
 

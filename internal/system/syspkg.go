@@ -19,3 +19,16 @@ func InstallSysPkg(pkgNames []string) {
 	// Print the output of the command
 	fmt.Printf("Command output:\n%s\n", string(output))
 }
+
+func RemoveSysPkg(pkgNames []string) {
+	// Define the dnf command and arguments
+	cmd := exec.Command("sudo", append([]string{"dnf", "remove", "-y"}, pkgNames...)...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("Failed to execute command: %v", err)
+	}
+
+	// Print the output of the command
+	fmt.Printf("Command output:\n%s\n", string(output))
+}

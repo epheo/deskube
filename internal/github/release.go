@@ -24,9 +24,7 @@ type Asset struct {
 	ContentType        string `json:"content_type"`
 }
 
-func GithubDownload(project string, arch string) string {
-
-	dir := "out/bin"
+func GithubDownload(project string, arch string, dir string) string {
 
 	// Ensure the directory exists
 	err := os.MkdirAll(dir, 0755)

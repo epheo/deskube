@@ -1,4 +1,4 @@
-package kubeconfig
+package k8s
 
 import (
 	"crypto/rand"

@@ -6,7 +6,7 @@ import (
 
 	"github.com/cloudflare/cfssl/config"
 	"github.com/epheo/deskube/certificates"
-	"github.com/epheo/deskube/kube"
+	"github.com/epheo/deskube/k8s"
 	"github.com/epheo/deskube/types"
 )
 
@@ -33,6 +33,6 @@ func InstallWorker(globalData types.GlobalData) {
 		log.Fatalf("Error generating %s certificate: %v", certData.CN, err)
 	}
 
-	kubeconfig.GenerateKubeconfig(globalData, service, cert, key)
+	k8s.GenerateKubeconfig(globalData, service, cert, key)
 
 }
