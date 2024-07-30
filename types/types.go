@@ -15,6 +15,7 @@ type GlobalData struct {
 	ClusterNetwork string
 	Hostname       string
 	ServiceNetwork string
+	WorkerHostname string
 }
 
 type CertData struct {

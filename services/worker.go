@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -13,13 +14,13 @@ import (
 func InstallWorker(globalData types.GlobalData) {
 
 	service := types.Service{
-		User:   "system:node:worker",
+		User:   fmt.Sprintf("system:node:%s", globalData.WorkerHostname),
 		Server: globalData.IpAddress,
 	}
 
 	// Define the certificate to generate
 	certData := types.CertData{
-		CN:    "system:node:worker",
+		CN:    fmt.Sprintf("system:node:%s", globalData.WorkerHostname),
 		O:     "system:nodes",
 		Hosts: []string{""},
 		Config: &config.SigningProfile{

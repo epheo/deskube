@@ -1,44 +1,20 @@
 package nodes
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 
+	"github.com/containerd/containerd/pkg/cri/config"
 	"github.com/epheo/deskube/internal/github"
 	"github.com/epheo/deskube/internal/googlestorage"
 	"github.com/epheo/deskube/internal/system"
+	"github.com/epheo/deskube/types"
+	"github.com/pelletier/go-toml"
 )
 
-//
-// url=https://github.com/kubernetes-sigs/cri-tools
-// version=$(github_latest ${url})
-// github_download ${url} ${version} crictl-v${version}-linux-amd64.tar.gz
-// tar -xvf crictl-v${version}-linux-amd64.tar.gz
-//
-// url=https://github.com/opencontainers/runc
-// version=$(github_latest ${url})
-// github_download ${url} ${version} runc.amd64
-// mv runc.amd64 runc
-//
-// url=https://github.com/containernetworking/plugins
-// version=$(github_latest ${url})
-// github_download ${url} ${version} cni-plugins-linux-amd64-v${version}.tgz
-// sudo tar -xvf cni-plugins-linux-amd64-v${version}.tgz -C /opt/cni/bin/
-//
-// url=https://github.com/containerd/containerd
-// version=$(github_latest ${url})
-// github_download ${url} ${version} containerd-${version}-linux-amd64.tar.gz
-// mkdir -p containerd
-// tar -xvf containerd-${version}-linux-amd64.tar.gz -C containerd
-//
-// # Install the worker binaries
-//
-// chmod +x crictl kubectl kube-proxy kubelet runc
-// sudo install crictl kubectl kube-proxy kubelet runc /usr/local/bin/
-// sudo install containerd/bin/* /bin/
-
-func Worker() {
+func Worker(globalData types.GlobalData) {
 	log.Println("Worker node")
 
 	packages := []string{
@@ -80,7 +56,7 @@ func Worker() {
 	// TODO
 
 	// Enable and restart systemd-resolved
-	system.EnableStartService([]string{"systemd-resolved"})
+	system.EnableStartService([]string{"/usr/lib/systemd/system/systemd-resolved.service"})
 
 	// Create directories
 	directories := []string{
@@ -136,6 +112,112 @@ func Worker() {
 	sourceDir = github.GithubDownload("containerd/containerd", "linux-amd64", "out/bin/containerd")
 	log.Printf("Source dir: %s\n", sourceDir)
 
-	// system.InstallBin([]string{"out/bin/containerd"}, "/bin")
+	targets := []string{
+		"containerd",
+		"containerd-shim",
+		"containerd-shim-runc-v1",
+		"containerd-shim-runc-v2",
+		"containerd-stress",
+		"ctr",
+	}
+
+	foundFiles, err = system.FindFiles("out/bin/containerd/bin/", targets)
+	if err != nil {
+		log.Println("Error:", err)
+		return
+	}
+	system.InstallBin(foundFiles, "/bin")
+
+	system.TemplateFile(
+		"templates/worker/10-bridge.conf.tmpl",
+		"/etc/cni/net.d/10-bridge.conf",
+		globalData,
+	)
+	system.TemplateFile(
+		"templates/worker/99-loopback.conf.tmpl",
+		"/etc/cni/net.d/99-loopback.conf",
+		globalData,
+	)
+
+	if err := os.MkdirAll("/etc/containerd/", 0755); err != nil {
+		log.Fatal(err)
+	}
+
+	config := config.DefaultConfig()
+	config.SystemdCgroup = true
+	configFile := "/etc/containerd/config.toml"
+
+	// Create or open the config file
+	file, err := os.OpenFile(configFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Fatalf("Error opening config file: %v", err)
+	}
+	defer file.Close()
+
+	// Write the default configuration to the file
+	if err := toml.NewEncoder(file).Encode(config); err != nil {
+		log.Fatalf("Error writing config file: %v", err)
+	}
+
+	log.Println("Default containerd configuration written to", configFile)
+
+	system.TemplateFile(
+		"templates/worker/containerd.service.tmpl",
+		"/etc/systemd/system/containerd.service",
+		globalData,
+	)
+
+	system.CopyFile(
+		"out/pem/ca.crt",
+		"/var/lib/kubernetes/ca.crt",
+	)
+	system.CopyFile(
+		fmt.Sprintf("out/pem/%s.crt", globalData.WorkerHostname),
+		fmt.Sprintf("/var/lib/kubelet/%s.crt", globalData.WorkerHostname),
+	)
+	system.CopyFile(
+		fmt.Sprintf("out/pem/%s.key", globalData.WorkerHostname),
+		fmt.Sprintf("/var/lib/kubelet/%s.key", globalData.WorkerHostname),
+	)
+	system.CopyFile(
+		fmt.Sprintf("out/kubeconfig/%s.kubeconfig", globalData.WorkerHostname),
+		"/var/lib/kubelet/kubeconfig",
+	)
+
+	system.TemplateFile(
+		"templates/worker/kubelet-config.yaml.tmpl",
+		"/var/lib/kubelet/kubelet-config.yaml",
+		globalData,
+	)
+	system.TemplateFile(
+		"templates/worker/kubelet.service.tmpl",
+		"/etc/systemd/system/kubelet.service",
+		globalData,
+	)
+
+	// kube-proxy
+
+	system.CopyFile(
+		"out/kubeconfig/kube-proxy.kubeconfig",
+		"/var/lib/kube-proxy/kubeconfig",
+	)
+	system.TemplateFile(
+		"templates/worker/kube-proxy-config.yaml.tmpl",
+		"/var/lib/kube-proxy/kube-proxy-config.yaml",
+		globalData,
+	)
+	system.TemplateFile(
+		"templates/worker/kube-proxy.service.tmpl",
+		"/etc/systemd/system/kube-proxy.service",
+		globalData,
+	)
+
+	targets = []string{
+		"/etc/systemd/system/containerd.service",
+		"/etc/systemd/system/kubelet.service",
+		"/etc/systemd/system/kube-proxy.service",
+	}
+
+	system.EnableStartService(targets)
 
 }

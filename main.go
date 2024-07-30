@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"strings"
 
 	"github.com/epheo/deskube/certificates"
 	"github.com/epheo/deskube/internal/net"
@@ -19,6 +21,14 @@ func main() {
 		log.Fatalf("Error generating CA: %v", err)
 	}
 
+	// Get the full worker hostname
+	fullHostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalf("Error getting hostname: %v", err)
+	}
+	// Extract the short hostname (part before the first dot)
+	WorkerHostname := strings.Split(fullHostname, ".")[0]
+
 	globalData := types.GlobalData{
 		CaKey:          caKey,
 		CaCert:         caCert,
@@ -30,6 +40,7 @@ func main() {
 		ClusterNetwork: "10.200.0.0/16",
 		Hostname:       "deskube",
 		ServiceNetwork: "10.32.0.0/24",
+		WorkerHostname: WorkerHostname,
 	}
 
 	services.InstallAdmin(globalData)
@@ -49,5 +60,7 @@ func main() {
 	services.InstallEtcd(globalData)
 
 	nodes.Controller(globalData)
+
+	nodes.Worker(globalData)
 
 }

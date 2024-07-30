@@ -78,23 +78,23 @@ func Controller(globalData types.GlobalData) {
 	}
 
 	system.TemplateFile(
-		"services/templates/kube-apiserver.service.tmpl",
+		"templates/kube-apiserver.service.tmpl",
 		"/etc/systemd/system/kube-apiserver.service",
 		globalData,
 	)
 
 	system.TemplateFile(
-		"services/templates/kube-controller-manager.service.tmpl",
+		"templates/kube-controller-manager.service.tmpl",
 		"/etc/systemd/system/kube-controller-manager.service",
 		globalData,
 	)
 	system.TemplateFile(
-		"services/templates/kube-scheduler.yaml.tmpl",
+		"templates/kube-scheduler.yaml.tmpl",
 		"/etc/kubernetes/config/kube-scheduler.yaml",
 		globalData,
 	)
 	system.TemplateFile(
-		"services/templates/kube-scheduler.service.tmpl",
+		"templates/kube-scheduler.service.tmpl",
 		"/etc/systemd/system/kube-scheduler.service",
 		globalData,
 	)
@@ -110,7 +110,7 @@ func Controller(globalData types.GlobalData) {
 	system.InstallSysPkg([]string{"nginx"})
 
 	system.TemplateFile(
-		"services/templates/nginx.conf.tmpl",
+		"templates/nginx.conf.tmpl",
 		fmt.Sprintf("/etc/nginx/conf.d/kubernetes.default.svc.%s.conf", globalData.ClusterDomain),
 		globalData,
 	)
@@ -172,13 +172,18 @@ func Controller(globalData types.GlobalData) {
 		},
 	}
 
-	// Create the ClusterRole resource in the cluster
-	_, err = clientset.RbacV1().ClusterRoles().Create(context.TODO(), clusterRole, metav1.CreateOptions{})
+	// Check if the ClusterRole resource already exists
+	_, err = clientset.RbacV1().ClusterRoles().Get(context.TODO(), clusterRole.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Fatalf("Error creating ClusterRole: %v", err)
+		// Create the ClusterRole resource in the cluster
+		_, err = clientset.RbacV1().ClusterRoles().Create(context.TODO(), clusterRole, metav1.CreateOptions{})
+		if err != nil {
+			log.Fatalf("Error creating ClusterRole: %v", err)
+		}
+		log.Println("ClusterRole created successfully")
+	} else {
+		log.Println("ClusterRole already exists")
 	}
-
-	log.Println("ClusterRole created successfully")
 
 	// Define the ClusterRoleBinding resource
 	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
@@ -199,11 +204,16 @@ func Controller(globalData types.GlobalData) {
 		},
 	}
 
-	// Create the ClusterRoleBinding resource in the cluster
-	_, err = clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), clusterRoleBinding, metav1.CreateOptions{})
+	// Check if the ClusterRoleBinding resource already exists
+	_, err = clientset.RbacV1().ClusterRoleBindings().Get(context.TODO(), clusterRoleBinding.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Fatalf("Error creating ClusterRoleBinding: %v", err)
+		// Create the ClusterRoleBinding resource in the cluster
+		_, err = clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), clusterRoleBinding, metav1.CreateOptions{})
+		if err != nil {
+			log.Fatalf("Error creating ClusterRoleBinding: %v", err)
+		}
+		log.Println("ClusterRoleBinding created successfully")
+	} else {
+		log.Println("ClusterRoleBinding already exists")
 	}
-
-	log.Println("ClusterRoleBinding created successfully")
 }

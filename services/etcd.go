@@ -80,7 +80,7 @@ func InstallEtcd(globalData types.GlobalData) {
 	}
 
 	system.TemplateFile(
-		"services/templates/etcd.service.tmpl",
+		"templates/etcd.service.tmpl",
 		"/etc/systemd/system/etcd.service",
 		globalData,
 	)

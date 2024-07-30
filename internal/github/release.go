@@ -45,7 +45,7 @@ func GithubDownload(project string, arch string, dir string) string {
 	}
 	defer response.Body.Close()
 
-	if contentType == "application/gzip" {
+	if contentType == "application/gzip" || strings.HasSuffix(fileName, ".tar.gz") || strings.HasSuffix(fileName, ".tgz") {
 		// Handle gzip content
 		system.ExtractTarGz(response.Body, dir)
 	} else {

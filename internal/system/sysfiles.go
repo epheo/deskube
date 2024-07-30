@@ -93,7 +93,7 @@ func TemplateFile(templatePath string, destinationPath string, data interface{})
 	// Template file
 	tmpl, err := template.ParseFiles(templatePath)
 	if err != nil {
-		log.Println("Error parsing template:", err)
+		log.Fatalln("Error parsing template:", err)
 		return err
 	}
 	// Create a new file to write the output
@@ -105,7 +105,7 @@ func TemplateFile(templatePath string, destinationPath string, data interface{})
 	// Execute the template with the data
 	err = tmpl.Execute(outputFile, data)
 	if err != nil {
-		log.Println("Error executing template:", err)
+		log.Fatalln("Error executing template:", err)
 		return err
 	}
 	log.Printf("Template written to %s successfully", outputFile.Name())

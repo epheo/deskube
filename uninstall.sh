@@ -27,4 +27,20 @@ systemctl daemon-reload
 
 echo "Uninstall kube-apiserver, kube-controller-manager, kube-scheduler completed"
 
-dnf remove nginx
+dnf remove nginx -y
+
+## Worker
+
+systemctl disable kubelet kube-proxy containerd
+systemctl stop kubelet kube-proxy containerd
+
+rm /usr/local/bin/kubelet /usr/local/bin/kube-proxy /bin/containerd*
+
+rm -rf /etc/cni /opt/cni /var/lib/kubelet /var/lib/kube-proxy /var/lib/kubernetes /var/run/kubernetes
+
+systemctl daemon-reload
+
+# sudo dnf remove -y socat conntrack container-selinux
+
+echo "Uninstall kubelet, kube-proxy, containerd completed"
+
