@@ -1,0 +1,65 @@
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiInstance
+metadata:
+  labels:
+    app.kubernetes.io/name: deskube
+    app.kubernetes.io/managed-by: kustomize
+  name: vdiinstance-sample
+spec:
+  # Reference to a KubeVirt VirtualMachine
+  kubeVirtVMRef:
+    name: windows10-vm
+    namespace: default
+  
+  # Configuration for Sunshine streaming server
+  sunshineConfig:
+    image: lizardbyte/sunshine:latest
+    fps: 60
+    resolution: 1920x1080
+    bitrate: 50
+    additionalOptions:
+      audio: true
+      gamepad_support: true
+  
+  # Configuration for Moonlight client (optional)
+  moonlightConfig:
+    image: lizardbyte/moonlight:latest
+    clientOptions:
+      fullscreen: true
+  
+  # Define who can access this VDI instance
+  # Note: For RBAC-based access control, see vdi_v1alpha1_vdiinstance_rbac.yaml
+  userAccess:
+  - username: admin
+    authType: basic
+    permissions:
+    - read
+    - write
+  - groups:
+    - developers
+    authType: oauth
+    permissions:
+    - read
+  
+  # For RBAC integration, uncomment the following:
+  # accessControl:
+  #   enabled: true
+  #   createRoles: true
+  
+  # Resource requirements for VDI components
+  resources:
+    sunshine:
+      limits:
+        memory: 2Gi
+        cpu: 2
+      requests:
+        memory: 1Gi
+        cpu: 1
+  
+  # Network configuration
+  networkConfig:
+    serviceType: ClusterIP
+    exposureMethod: Route
+    hostname: vdi.example.com
+    port: 47989
+    tls: true

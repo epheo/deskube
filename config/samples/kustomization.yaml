@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- vdi_v1alpha1_vdiinstance.yaml
+- vdi_v1alpha1_vdiinstance_rbac.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
