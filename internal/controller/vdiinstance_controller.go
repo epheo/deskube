@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
+	routev1 "github.com/openshift/api/route/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 )
 
@@ -492,12 +493,9 @@ func (r *VdiInstanceReconciler) reconcileNetworking(ctx context.Context, vdi *vd
 	case "Route":
 		// This is specific to OpenShift
 		logger.Info("Using OpenShift Route for VDI exposure")
-		// In a full implementation, this would create an OpenShift Route
-		// Since we're in a basic implementation, we'll skip this step
-		// but update the connection info as if we did it
-		baseURL := fmt.Sprintf("%s-vdi.apps.example.com", vdi.Name)
-		vdi.Status.ConnectionDetails.AccessURL = "https://" + baseURL
-		vdi.Status.ConnectionDetails.Port = DefaultStreamingPort
+		if err := r.reconcileRoute(ctx, vdi); err != nil {
+			return fmt.Errorf("failed to reconcile OpenShift route: %w", err)
+		}
 	case "Ingress":
 		logger.Info("Using Kubernetes Ingress for VDI exposure")
 		if err := r.reconcileIngress(ctx, vdi); err != nil {
@@ -641,6 +639,87 @@ func (r *VdiInstanceReconciler) reconcileIngress(ctx context.Context, vdi *vdiv1
 	existingIngress.Spec = ingress.Spec
 	logger.Info("Updating ingress", "name", ingress.Name)
 	return r.Update(ctx, existingIngress)
+}
+
+// reconcileRoute creates or updates the OpenShift Route for VDI access
+func (r *VdiInstanceReconciler) reconcileRoute(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
+	logger := log.FromContext(ctx)
+
+	// Determine hostname
+	hostname := getHostname(vdi)
+	if hostname == "" {
+		// Use a default hostname pattern if not specified
+		hostname = fmt.Sprintf("%s-vdi.apps.example.com", vdi.Name)
+	}
+
+	// TLS is enabled by default, but can be disabled in the config
+	useTLS := vdi.Spec.NetworkConfig.TLS
+
+	// Create route
+	route := &routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-sunshine", vdi.Name),
+			Namespace: vdi.Namespace,
+		},
+		Spec: routev1.RouteSpec{
+			Host: hostname,
+			To: routev1.RouteTargetReference{
+				Kind: "Service",
+				Name: fmt.Sprintf("%s-sunshine", vdi.Name),
+			},
+			Port: &routev1.RoutePort{
+				TargetPort: intstr.FromInt(int(DefaultStreamingPort)),
+			},
+		},
+	}
+
+	// Configure TLS if enabled
+	if useTLS {
+		route.Spec.TLS = &routev1.TLSConfig{
+			Termination:                   routev1.TLSTerminationEdge,
+			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+		}
+	}
+
+	// Set owner reference
+	if err := controllerutil.SetControllerReference(vdi, route, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set owner reference on route")
+		return err
+	}
+
+	// Create or update the route
+	existingRoute := &routev1.Route{}
+	err := r.Get(ctx, types.NamespacedName{Name: route.Name, Namespace: route.Namespace}, existingRoute)
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Creating OpenShift route", "name", route.Name, "host", route.Spec.Host)
+
+		// Set the connection details
+		scheme := "http"
+		if useTLS {
+			scheme = "https"
+		}
+		vdi.Status.ConnectionDetails.AccessURL = fmt.Sprintf("%s://%s", scheme, hostname)
+		vdi.Status.ConnectionDetails.Port = DefaultStreamingPort
+
+		return r.Create(ctx, route)
+	} else if err != nil {
+		logger.Error(err, "Failed to get existing route")
+		return err
+	}
+
+	// Update existing route
+	existingRoute.Spec = route.Spec
+	logger.Info("Updating OpenShift route", "name", route.Name, "host", route.Spec.Host)
+
+	// Set the connection details
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	vdi.Status.ConnectionDetails.AccessURL = fmt.Sprintf("%s://%s", scheme, hostname)
+	vdi.Status.ConnectionDetails.Port = DefaultStreamingPort
+
+	return r.Update(ctx, existingRoute)
 }
 
 // Helper functions for Sunshine configuration
@@ -787,6 +866,20 @@ func (r *VdiInstanceReconciler) cleanupNetworkingResources(ctx context.Context, 
 		}
 		if err := r.Delete(ctx, ingress); err != nil && !errors.IsNotFound(err) {
 			logger.Error(err, "Failed to delete ingress")
+			return err
+		}
+	}
+
+	// Delete route if exposure method is Route
+	if getExposureMethod(vdi) == "Route" {
+		route := &routev1.Route{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-sunshine", vdi.Name),
+				Namespace: vdi.Namespace,
+			},
+		}
+		if err := r.Delete(ctx, route); err != nil && !errors.IsNotFound(err) {
+			logger.Error(err, "Failed to delete OpenShift route")
 			return err
 		}
 	}

@@ -38,6 +38,7 @@ import (
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
 	"github.com/deskube/deskube/internal/controller"
+	routev1 "github.com/openshift/api/route/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -50,6 +51,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(vdiv1alpha1.AddToScheme(scheme))
+	// Add OpenShift route scheme
+	utilruntime.Must(routev1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
