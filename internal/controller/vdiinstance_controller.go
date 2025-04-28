@@ -70,12 +70,19 @@ type VdiInstanceReconciler struct {
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances/finalizers,verbs=update
-// +kubebuilder:rbac:groups=core,resources=services;configmaps;secrets;persistentvolumeclaims;pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=vdi.desku.be,resources=vditemplates,verbs=get;list;watch
+// +kubebuilder:rbac:groups=vdi.desku.be,resources=vditemplates/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims;pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;virtualmachineinstances,verbs=get;list;watch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -110,6 +117,22 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			logger.Error(err, "Failed to update VdiInstance status")
 			return ctrl.Result{}, err
 		}
+	}
+
+	// If this is a template-based provisioning, process the template first
+	if vdi.Spec.ProvisionSource == vdiv1alpha1.ProvisionFromTemplate && vdi.Spec.TemplateRef != nil {
+		if err := r.processTemplateBasedInstance(ctx, vdi); err != nil {
+			logger.Error(err, "Failed to process template-based instance")
+			vdi.Status.Phase = PhaseFailed
+			if updateErr := r.Status().Update(ctx, vdi); updateErr != nil {
+				logger.Error(updateErr, "Failed to update VdiInstance status after template processing error")
+			}
+			return ctrl.Result{}, err
+		}
+
+		// Requeue to handle the updated instance with populated values from template
+		logger.Info("Template successfully applied to instance, requeuing")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Add finalizer for cleanup if not present
@@ -231,6 +254,11 @@ func (r *VdiInstanceReconciler) handleDeletion(ctx context.Context, vdi *vdiv1al
 func (r *VdiInstanceReconciler) checkKubeVirtVM(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (string, error) {
 	logger := log.FromContext(ctx)
 
+	// Check if KubeVirtVMRef is provided
+	if vdi.Spec.KubeVirtVMRef == nil {
+		return "", fmt.Errorf("KubeVirtVMRef is not specified in VDI instance")
+	}
+
 	// Determine the namespace to look for the VM
 	vmNamespace := vdi.Spec.KubeVirtVMRef.Namespace
 	if vmNamespace == "" {
@@ -261,13 +289,17 @@ func (r *VdiInstanceReconciler) checkKubeVirtVM(ctx context.Context, vdi *vdiv1a
 	// Check if VM is running based on the conditions and printable status
 	if vm.Status.Ready {
 		return "Ready", nil
-	} else if vm.Status.PrintableStatus == "Running" || vm.Status.PrintableStatus == "Starting" {
-		return "Starting", nil
-	} else if vm.Status.PrintableStatus == "Stopped" || vm.Status.PrintableStatus == "Stopping" {
-		return "Stopped", nil
-	} else {
-		return string(vm.Status.PrintableStatus), nil
 	}
+
+	if vm.Status.PrintableStatus == "Running" || vm.Status.PrintableStatus == "Starting" {
+		return "Starting", nil
+	}
+
+	if vm.Status.PrintableStatus == "Stopped" || vm.Status.PrintableStatus == "Stopping" {
+		return "Stopped", nil
+	}
+
+	return string(vm.Status.PrintableStatus), nil
 }
 
 // reconcileSunshineComponents creates or updates the Sunshine streaming components
@@ -923,7 +955,12 @@ func (r *VdiInstanceReconciler) createOrUpdateRole(ctx context.Context, role *rb
 }
 
 // createRoleBinding creates or updates a RoleBinding for a user access policy
-func (r *VdiInstanceReconciler) createRoleBinding(ctx context.Context, vdi *vdiv1alpha1.VdiInstance, access vdiv1alpha1.UserAccessPolicy) error {
+// createRoleBinding creates a RoleBinding for user access policy
+func (r *VdiInstanceReconciler) createRoleBinding(
+	ctx context.Context,
+	vdi *vdiv1alpha1.VdiInstance,
+	access vdiv1alpha1.UserAccessPolicy,
+) error {
 	logger := log.FromContext(ctx)
 
 	// Determine subject type and name

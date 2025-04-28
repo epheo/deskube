@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package rbac provides permission checking and role-based access control functionality
 package rbac
 
 import (
@@ -34,6 +35,11 @@ const (
 	PermissionConnect = "connect" // Can connect to the VDI instance
 	PermissionManage  = "manage"  // Can update configuration of the VDI instance
 	PermissionAdmin   = "admin"   // Has full administrative access
+
+	// Subject kinds
+	SubjectKindUser           = "User"
+	SubjectKindGroup          = "Group"
+	SubjectKindServiceAccount = "ServiceAccount"
 )
 
 // SubjectInfo contains information about the user/group/serviceaccount requesting access
@@ -47,7 +53,14 @@ type SubjectInfo struct {
 }
 
 // HasPermission checks if a subject has a specific permission for a VDI instance
-func HasPermission(ctx context.Context, client kubernetes.Interface, vdi *vdiv1alpha1.VdiInstance, subject SubjectInfo, permission string) (bool, error) {
+// HasPermission checks if a subject has permission to perform actions on a VDI instance
+func HasPermission(
+	ctx context.Context,
+	client kubernetes.Interface,
+	vdi *vdiv1alpha1.VdiInstance,
+	subject SubjectInfo,
+	permission string,
+) (bool, error) {
 	// First check if RBAC integration is enabled
 	if vdi.Spec.AccessControl == nil || !vdi.Spec.AccessControl.Enabled {
 		// If RBAC is disabled, check legacy UserAccess rules
@@ -91,12 +104,12 @@ func HasPermission(ctx context.Context, client kubernetes.Interface, vdi *vdiv1a
 
 	// Set the user or group
 	switch subject.Kind {
-	case "User":
+	case SubjectKindUser:
 		sar.Spec.User = subject.Name
 		sar.Spec.Groups = subject.Groups
-	case "Group":
+	case SubjectKindGroup:
 		sar.Spec.Groups = []string{subject.Name}
-	case "ServiceAccount":
+	case SubjectKindServiceAccount:
 		sar.Spec.User = fmt.Sprintf("system:serviceaccount:%s:%s", vdi.Namespace, subject.Name)
 	default:
 		return false, fmt.Errorf("unknown subject kind: %s", subject.Kind)
@@ -116,7 +129,7 @@ func hasLegacyPermission(vdi *vdiv1alpha1.VdiInstance, subject SubjectInfo, perm
 	// If no UserAccess is defined, deny access (unless it's the default Kubernetes admin)
 	if len(vdi.Spec.UserAccess) == 0 {
 		// Allow cluster admins (this is simplistic, real implementation would be more robust)
-		if subject.Kind == "User" && subject.Name == "system:admin" {
+		if subject.Kind == SubjectKindUser && subject.Name == "system:admin" {
 			return true, nil
 		}
 		return false, nil
@@ -125,17 +138,17 @@ func hasLegacyPermission(vdi *vdiv1alpha1.VdiInstance, subject SubjectInfo, perm
 	// Check if the subject matches any UserAccess entry
 	for _, access := range vdi.Spec.UserAccess {
 		// Check for direct username match
-		if subject.Kind == "User" && (access.Username == subject.Name || access.Name == subject.Name) {
+		if subject.Kind == SubjectKindUser && (access.Username == subject.Name || access.Name == subject.Name) {
 			return hasPermissionInPolicy(access, permission)
 		}
 
 		// Check for group matches
-		if subject.Kind == "Group" && contains(access.Groups, subject.Name) {
+		if subject.Kind == SubjectKindGroup && contains(access.Groups, subject.Name) {
 			return hasPermissionInPolicy(access, permission)
 		}
 
 		// Check if user is part of an allowed group
-		if subject.Kind == "User" {
+		if subject.Kind == SubjectKindUser {
 			for _, group := range subject.Groups {
 				if contains(access.Groups, group) {
 					return hasPermissionInPolicy(access, permission)

@@ -24,4 +24,6 @@ resources:
 # if you do not want those helpers be installed with your Project.
 - vdiinstance_editor_role.yaml
 - vdiinstance_viewer_role.yaml
+- vditemplate_editor_role.yaml
+- vditemplate_viewer_role.yaml
 

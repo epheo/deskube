@@ -2,4 +2,6 @@
 resources:
 - vdi_v1alpha1_vdiinstance.yaml
 - vdi_v1alpha1_vdiinstance_rbac.yaml
+- vdi_v1alpha1_vditemplate.yaml
+- vdi_v1alpha1_vdiinstance_from_template.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

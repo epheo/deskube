@@ -39,6 +39,42 @@ spec:
           spec:
             description: VdiInstanceSpec defines the desired state of VdiInstance
             properties:
+              accessControl:
+                description: AccessControl defines RBAC integration for access control
+                properties:
+                  createRoles:
+                    description: CreateRoles indicates whether the operator should
+                      create RBAC roles for the VDI instance
+                    type: boolean
+                  defaultRoleRef:
+                    description: DefaultRoleRef specifies a default role reference
+                      for users without specific roles
+                    properties:
+                      kind:
+                        description: Kind defines the type of role being referenced
+                          (Role or ClusterRole)
+                        enum:
+                        - Role
+                        - ClusterRole
+                        type: string
+                      name:
+                        description: Name is the name of the referenced role
+                        type: string
+                      namespace:
+                        description: Namespace is the namespace of the referenced
+                          role (only for Role, not for ClusterRole)
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  enabled:
+                    description: Enabled indicates whether RBAC controls are enforced
+                    type: boolean
+                  rolePrefix:
+                    description: RolePrefix is the prefix used for generated roles
+                    type: string
+                type: object
               kubeVirtVMRef:
                 description: KubeVirtVMRef refers to the KubeVirt VirtualMachine that
                   this VDI instance will connect to
@@ -245,17 +281,51 @@ spec:
                         basic, oauth, ldap)
                       type: string
                     groups:
-                      description: Groups defines the groups allowed to access
+                      description: Groups defines the groups allowed to access (deprecated,
+                        use separate UserAccessPolicy entries instead)
                       items:
                         type: string
                       type: array
+                    name:
+                      description: Name defines the name of the user, group, or serviceaccount
+                      type: string
                     permissions:
                       description: Permissions defines what operations are allowed
                       items:
                         type: string
                       type: array
+                    roleRef:
+                      description: RoleRef specifies a ClusterRole or Role that defines
+                        permissions
+                      properties:
+                        kind:
+                          description: Kind defines the type of role being referenced
+                            (Role or ClusterRole)
+                          enum:
+                          - Role
+                          - ClusterRole
+                          type: string
+                        name:
+                          description: Name is the name of the referenced role
+                          type: string
+                        namespace:
+                          description: Namespace is the namespace of the referenced
+                            role (only for Role, not for ClusterRole)
+                          type: string
+                      required:
+                      - kind
+                      - name
+                      type: object
+                    type:
+                      description: Type defines the type of access (user, group, serviceaccount)
+                      enum:
+                      - user
+                      - group
+                      - serviceaccount
+                      type: string
                     username:
-                      description: Username defines the username for access
+                      description: Username defines the username for access (deprecated,
+                        use Name instead)
                       type: string
                   type: object
                 type: array

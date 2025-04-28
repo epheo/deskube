@@ -1,0 +1,9 @@
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiInstance
+metadata:
+  name: desktop-from-template
+spec:
+  provisionSource: Template
+  templateRef:
+    name: desktop-template
+    instanceName: user1-desktop

@@ -1,0 +1,48 @@
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiTemplate
+metadata:
+  name: desktop-template
+spec:
+  description: "Standard desktop environment for general use"
+  displayName: "General Purpose Desktop"
+  tags: 
+    - "desktop"
+    - "general"
+    - "standard"
+  defaultInstancePrefix: "std-desktop"
+  kubeVirtVMTemplateRef:
+    name: standard-vm-template
+    namespace: default
+  
+  vdiInstanceTemplateSpec:
+    sunshineConfig:
+      image: lizardbyte/sunshine:latest
+      fps: 60
+      resolution: 1920x1080
+      bitrate: 50
+      additionalOptions:
+        audio: "true"
+        gamepad_support: "true"
+    
+    networkConfig:
+      serviceType: ClusterIP
+      exposureMethod: Route
+      port: 47989
+      tls: true
+    
+    resources:
+      sunshine:
+        limits:
+          memory: 2Gi
+          cpu: 2
+        requests:
+          memory: 1Gi
+          cpu: 1
+    
+    userAccess:
+    - type: group
+      name: standard-users
+      authType: oauth
+      permissions:
+      - read
+      - write

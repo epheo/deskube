@@ -55,6 +55,21 @@ rules:
   - update
   - watch
 - apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - route.openshift.io
   resources:
   - routes
@@ -70,6 +85,7 @@ rules:
   - vdi.desku.be
   resources:
   - vdiinstances
+  - vditemplates
   verbs:
   - create
   - delete
@@ -82,12 +98,14 @@ rules:
   - vdi.desku.be
   resources:
   - vdiinstances/finalizers
+  - vditemplates/finalizers
   verbs:
   - update
 - apiGroups:
   - vdi.desku.be
   resources:
   - vdiinstances/status
+  - vditemplates/status
   verbs:
   - get
   - patch

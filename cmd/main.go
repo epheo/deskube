@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package main is the entry point for the VDI controller
 package main
 
 import (
@@ -149,6 +150,14 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VdiInstance")
+		os.Exit(1)
+	}
+
+	if err = (&controller.VdiTemplateReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "VdiTemplate")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

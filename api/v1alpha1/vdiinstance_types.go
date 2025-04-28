@@ -210,8 +210,20 @@ type ConnectionInfo struct {
 
 // VdiInstanceSpec defines the desired state of VdiInstance
 type VdiInstanceSpec struct {
+	// ProvisionSource specifies how this VDI instance should be provisioned
+	// +kubebuilder:validation:Enum=Template;Direct
+	// +optional
+	ProvisionSource ProvisionSource `json:"provisionSource,omitempty"`
+
+	// TemplateRef references a VdiTemplate to use for creating this instance
+	// Only used when provisionSource is Template
+	// +optional
+	TemplateRef *VdiTemplateRef `json:"templateRef,omitempty"`
+
 	// KubeVirtVMRef refers to the KubeVirt VirtualMachine that this VDI instance will connect to
-	KubeVirtVMRef KubeVirtVMReference `json:"kubeVirtVMRef"`
+	// Required when provisionSource is Direct or not specified
+	// +optional
+	KubeVirtVMRef *KubeVirtVMReference `json:"kubeVirtVMRef,omitempty"`
 
 	// SunshineConfig defines the configuration for the Sunshine streaming server
 	// +optional
