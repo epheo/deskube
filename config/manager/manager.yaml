@@ -64,6 +64,8 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
         image: controller:latest
+        # A moving dev tag must be pulled again on every restart.
+        imagePullPolicy: Always
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
