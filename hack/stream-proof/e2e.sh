@@ -5,10 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 NS=${NS:-deskube-dev}
-HOST=127.0.0.1
-PORT=31989
-WEB=31990
-PASS=$(cat .rendered/sunshine-admin-password)
+VM=${VM:-desk-proof}
+PORT=${PORT:-31989}
+WEB=$((PORT+1))
+# HOST=<node ip> tests the direct NodePort path and skips the tunnel.
+HOST=${HOST:-127.0.0.1}
+PASS=$(cat "${PASS_FILE:-.rendered/sunshine-admin-password}")
 WORK=${WORK:-$(mktemp -d)}
 CACHE=$WORK/moonlight-cache
 mkdir -p "$CACHE"
@@ -16,10 +18,12 @@ mkdir -p "$CACHE"
 ml() { podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i moonlight-cli "$@"; }
 api() { curl -sk -u "admin:$PASS" -H 'Content-Type: application/json' "$@"; }
 
-virtctl port-forward "vm/desk-proof/$NS" 31984 31989 31990 32010 udp/31998 udp/31999 udp/32000 \
-  > "$WORK/tunnel.log" 2>&1 &
-TUNNEL=$!
-trap 'kill $TUNNEL 2>/dev/null || true' EXIT
+if [ "$HOST" = 127.0.0.1 ]; then
+  virtctl port-forward "vm/$VM/$NS" $((PORT-5)) $PORT $WEB $((PORT+21)) \
+    udp/$((PORT+9)) udp/$((PORT+10)) udp/$((PORT+11)) > "$WORK/tunnel.log" 2>&1 &
+  TUNNEL=$!
+  trap 'kill $TUNNEL 2>/dev/null || true' EXIT
+fi
 for _ in $(seq 1 30); do api "https://$HOST:$WEB/api/config" -o /dev/null && break; sleep 1; done
 
 echo "== serverinfo"
