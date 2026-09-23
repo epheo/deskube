@@ -14,10 +14,26 @@ spec:
     singular: vdiinstance
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.address
+      name: Address
+      type: string
+    - jsonPath: .status.sessionState
+      name: Session
+      type: string
+    - jsonPath: .spec.owner
+      name: Owner
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: VdiInstance is the Schema for the vdiinstances API
+        description: VdiInstance is a streamed virtual desktop.
         properties:
           apiVersion:
             description: |-
@@ -37,337 +53,119 @@ spec:
           metadata:
             type: object
           spec:
-            description: VdiInstanceSpec defines the desired state of VdiInstance
+            description: VdiInstanceSpec defines one desktop for one owner.
             properties:
-              accessControl:
-                description: AccessControl defines RBAC integration for access control
+              expose:
+                description: ExposeSpec controls the Service in front of the desktop.
                 properties:
-                  createRoles:
-                    description: CreateRoles indicates whether the operator should
-                      create RBAC roles for the VDI instance
-                    type: boolean
-                  defaultRoleRef:
-                    description: DefaultRoleRef specifies a default role reference
-                      for users without specific roles
+                  basePort:
+                    description: |-
+                      BasePort pins the Sunshine base port. Allocated when empty.
+                      Moonlight derives the other ports from it: -5, +1, +9, +10, +11, +21.
+                    format: int32
+                    maximum: 65514
+                    minimum: 1029
+                    type: integer
+                  host:
+                    description: Host overrides the address reported to clients, for
+                      example a DNS name.
+                    type: string
+                  type:
+                    default: NodePort
+                    description: ExposeType selects how the stream reaches the client.
+                    enum:
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                type: object
+              image:
+                description: ImageSource is the golden image a desktop boots from.
+                properties:
+                  dataSource:
+                    description: DataSourceRef names a CDI DataSource holding a prepared
+                      desktop disk.
                     properties:
-                      kind:
-                        description: Kind defines the type of role being referenced
-                          (Role or ClusterRole)
-                        enum:
-                        - Role
-                        - ClusterRole
-                        type: string
                       name:
-                        description: Name is the name of the referenced role
                         type: string
                       namespace:
-                        description: Namespace is the namespace of the referenced
-                          role (only for Role, not for ClusterRole)
+                        description: Namespace defaults to the instance namespace.
                         type: string
                     required:
-                    - kind
                     - name
                     type: object
-                  enabled:
-                    description: Enabled indicates whether RBAC controls are enforced
-                    type: boolean
-                  rolePrefix:
-                    description: RolePrefix is the prefix used for generated roles
-                    type: string
-                type: object
-              kubeVirtVMRef:
-                description: |-
-                  KubeVirtVMRef refers to the KubeVirt VirtualMachine that this VDI instance will connect to
-                  Required when provisionSource is Direct or not specified
-                properties:
-                  name:
-                    description: Name of the referenced KubeVirt VirtualMachine
-                    type: string
-                  namespace:
-                    description: Namespace of the referenced KubeVirt VirtualMachine
-                    type: string
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 30Gi
+                    description: Size of the root disk. Cannot be smaller than the
+                      image.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                 required:
-                - name
+                - dataSource
                 type: object
-              moonlightConfig:
-                description: MoonlightConfig defines the configuration for the Moonlight
-                  client
-                properties:
-                  clientOptions:
-                    additionalProperties:
-                      type: string
-                    description: ClientOptions defines client-specific configurations
-                    type: object
-                  image:
-                    description: Image defines the Docker image for Moonlight
-                    type: string
-                type: object
-              networkConfig:
-                description: NetworkConfig defines network settings for the VDI instance
-                properties:
-                  exposureMethod:
-                    description: ExposureMethod defines how to expose the VDI (Ingress,
-                      Route, LoadBalancer)
-                    type: string
-                  hostname:
-                    description: Hostname defines the hostname for accessing the VDI
-                    type: string
-                  port:
-                    description: Port defines the port for the VDI service
-                    format: int32
-                    type: integer
-                  serviceType:
-                    description: ServiceType defines the type of service to expose
-                      VDI (ClusterIP, NodePort, LoadBalancer)
-                    type: string
-                  tls:
-                    description: TLS defines whether TLS should be enabled
-                    type: boolean
-                type: object
-              provisionSource:
-                allOf:
-                - enum:
-                  - Template
-                  - Direct
-                - enum:
-                  - Template
-                  - Direct
-                description: ProvisionSource specifies how this VDI instance should
-                  be provisioned
+              instanceType:
+                default: u1.xlarge
+                description: InstanceType is a VirtualMachineClusterInstancetype name.
                 type: string
-              resources:
-                description: Resources defines the compute resources for the VDI components
-                properties:
-                  moonlight:
-                    description: Moonlight defines resources for the Moonlight client
-                    properties:
-                      claims:
-                        description: |-
-                          Claims lists the names of resources, defined in spec.resourceClaims,
-                          that are used by this container.
-
-                          This is an alpha field and requires enabling the
-                          DynamicResourceAllocation feature gate.
-
-                          This field is immutable. It can only be set for containers.
-                        items:
-                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                          properties:
-                            name:
-                              description: |-
-                                Name must match the name of one entry in pod.spec.resourceClaims of
-                                the Pod where this field is used. It makes that resource available
-                                inside a container.
-                              type: string
-                            request:
-                              description: |-
-                                Request is the name chosen for a request in the referenced claim.
-                                If empty, everything from the claim is made available, otherwise
-                                only the result of this request.
-                              type: string
-                          required:
-                          - name
-                          type: object
-                        type: array
-                        x-kubernetes-list-map-keys:
-                        - name
-                        x-kubernetes-list-type: map
-                      limits:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          Limits describes the maximum amount of compute resources allowed.
-                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                        type: object
-                      requests:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          Requests describes the minimum amount of compute resources required.
-                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                        type: object
-                    type: object
-                  sunshine:
-                    description: Sunshine defines resources for the Sunshine streaming
-                      server
-                    properties:
-                      claims:
-                        description: |-
-                          Claims lists the names of resources, defined in spec.resourceClaims,
-                          that are used by this container.
-
-                          This is an alpha field and requires enabling the
-                          DynamicResourceAllocation feature gate.
-
-                          This field is immutable. It can only be set for containers.
-                        items:
-                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                          properties:
-                            name:
-                              description: |-
-                                Name must match the name of one entry in pod.spec.resourceClaims of
-                                the Pod where this field is used. It makes that resource available
-                                inside a container.
-                              type: string
-                            request:
-                              description: |-
-                                Request is the name chosen for a request in the referenced claim.
-                                If empty, everything from the claim is made available, otherwise
-                                only the result of this request.
-                              type: string
-                          required:
-                          - name
-                          type: object
-                        type: array
-                        x-kubernetes-list-map-keys:
-                        - name
-                        x-kubernetes-list-type: map
-                      limits:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          Limits describes the maximum amount of compute resources allowed.
-                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                        type: object
-                      requests:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          Requests describes the minimum amount of compute resources required.
-                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                        type: object
-                    type: object
-                type: object
-              sunshineConfig:
-                description: SunshineConfig defines the configuration for the Sunshine
-                  streaming server
-                properties:
-                  additionalOptions:
-                    additionalProperties:
-                      type: string
-                    description: AdditionalOptions defines additional Sunshine configuration
-                      options
-                    type: object
-                  bitrate:
-                    description: Bitrate defines the streaming bitrate in Mbps
-                    format: int32
-                    type: integer
-                  fps:
-                    description: FPS defines the frames per second for streaming
-                    format: int32
-                    type: integer
-                  image:
-                    description: Image defines the Docker image for Sunshine
-                    type: string
-                  resolution:
-                    description: Resolution defines the streaming resolution
-                    type: string
-                type: object
-              templateRef:
-                description: |-
-                  TemplateRef references a VdiTemplate to use for creating this instance
-                  Only used when provisionSource is Template
-                properties:
-                  instanceName:
-                    description: |-
-                      InstanceName allows specifying a custom name for the instance
-                      If empty, one will be generated using the template's DefaultInstancePrefix
-                    type: string
-                  name:
-                    description: Name of the VdiTemplate
-                    type: string
-                  namespace:
-                    description: Namespace of the VdiTemplate (optional - defaults
-                      to the same namespace)
-                    type: string
-                required:
-                - name
-                type: object
-              userAccess:
-                description: UserAccess defines who can access this VDI instance
+              owner:
+                description: Owner is the Kubernetes user allowed to read this instance
+                  and pair clients.
+                type: string
+              preference:
+                default: fedora
+                description: Preference is a VirtualMachineClusterPreference name.
+                type: string
+              running:
+                default: true
+                description: Running is the desired power state.
+                type: boolean
+              sshAuthorizedKeys:
+                description: SSHAuthorizedKeys are installed for the admin user in
+                  the guest.
                 items:
-                  description: UserAccessPolicy defines who can access this VDI instance
-                  properties:
-                    authType:
-                      description: AuthType defines the authentication type (e.g.,
-                        basic, oauth, ldap)
-                      type: string
-                    groups:
-                      description: Groups defines the groups allowed to access (deprecated,
-                        use separate UserAccessPolicy entries instead)
-                      items:
-                        type: string
-                      type: array
-                    name:
-                      description: Name defines the name of the user, group, or serviceaccount
-                      type: string
-                    permissions:
-                      description: Permissions defines what operations are allowed
-                      items:
-                        type: string
-                      type: array
-                    roleRef:
-                      description: RoleRef specifies a ClusterRole or Role that defines
-                        permissions
-                      properties:
-                        kind:
-                          description: Kind defines the type of role being referenced
-                            (Role or ClusterRole)
-                          enum:
-                          - Role
-                          - ClusterRole
-                          type: string
-                        name:
-                          description: Name is the name of the referenced role
-                          type: string
-                        namespace:
-                          description: Namespace is the namespace of the referenced
-                            role (only for Role, not for ClusterRole)
-                          type: string
-                      required:
-                      - kind
-                      - name
-                      type: object
-                    type:
-                      description: Type defines the type of access (user, group, serviceaccount)
-                      enum:
-                      - user
-                      - group
-                      - serviceaccount
-                      type: string
-                    username:
-                      description: Username defines the username for access (deprecated,
-                        use Name instead)
-                      type: string
-                  type: object
+                  type: string
                 type: array
+              stream:
+                description: StreamSpec is passed into the Sunshine config inside
+                  the guest.
+                properties:
+                  capture:
+                    default: x11
+                    enum:
+                    - x11
+                    - kms
+                    - wlr
+                    - kwin
+                    type: string
+                  encoder:
+                    default: software
+                    enum:
+                    - software
+                    - vaapi
+                    - nvenc
+                    - quicksync
+                    - amdvce
+                    - vulkan
+                    type: string
+                type: object
+            required:
+            - image
             type: object
           status:
-            description: VdiInstanceStatus defines the observed state of VdiInstance
+            description: VdiInstanceStatus reports what a client needs to connect.
             properties:
+              address:
+                description: Address is what to type in Moonlight, host:port.
+                type: string
+              adminSecret:
+                description: AdminSecret holds the Sunshine web UI credentials.
+                type: string
+              basePort:
+                format: int32
+                type: integer
               conditions:
-                description: Conditions represents the latest available observations
-                  of the VDI state
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -423,92 +221,18 @@ spec:
                   - type
                   type: object
                 type: array
-              connectionDetails:
-                description: ConnectionDetails contains information needed to connect
-                  to the VDI instance
-                properties:
-                  accessURL:
-                    description: AccessURL provides the URL for accessing the VDI
-                    type: string
-                  connectionParams:
-                    additionalProperties:
-                      type: string
-                    description: ConnectionParams provides additional connection parameters
-                    type: object
-                  credentials:
-                    description: Credentials provides a reference to the secret containing
-                      credentials
-                    properties:
-                      name:
-                        description: name is unique within a namespace to reference
-                          a secret resource.
-                        type: string
-                      namespace:
-                        description: namespace defines the space within which the
-                          secret name must be unique.
-                        type: string
-                    type: object
-                    x-kubernetes-map-type: atomic
-                  port:
-                    description: Port provides the port number for accessing the VDI
-                    format: int32
-                    type: integer
-                type: object
-              moonlightStatus:
-                description: MoonlightStatus contains information about the Moonlight
-                  client
-                properties:
-                  message:
-                    description: Message contains additional status information
-                    type: string
-                  podIP:
-                    description: PodIP contains the IP address of the pod running
-                      the component
-                    type: string
-                  podName:
-                    description: PodName contains the name of the pod running the
-                      component
-                    type: string
-                  ready:
-                    description: Ready indicates if the component is ready
-                    type: boolean
-                  version:
-                    description: Version contains the version of the component
-                    type: string
-                required:
-                - ready
-                type: object
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
               phase:
-                description: Phase represents the current phase of the VDI instance
-                  (Pending, Running, Failed, etc.)
+                description: VdiInstancePhase is a one word summary of the status
+                  conditions.
                 type: string
-              sunshineStatus:
-                description: SunshineStatus contains information about the Sunshine
-                  streaming server
-                properties:
-                  message:
-                    description: Message contains additional status information
-                    type: string
-                  podIP:
-                    description: PodIP contains the IP address of the pod running
-                      the component
-                    type: string
-                  podName:
-                    description: PodName contains the name of the pod running the
-                      component
-                    type: string
-                  ready:
-                    description: Ready indicates if the component is ready
-                    type: boolean
-                  version:
-                    description: Version contains the version of the component
-                    type: string
-                required:
-                - ready
-                type: object
-              vmStatus:
-                description: VMStatus represents the status of the underlying KubeVirt
-                  VM
+              sessionState:
+                description: SessionState is free or busy, from Sunshine serverinfo.
                 type: string
             type: object
         type: object

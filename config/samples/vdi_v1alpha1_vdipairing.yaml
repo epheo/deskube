@@ -1,0 +1,10 @@
+# Moonlight shows a PIN when you add the host. Put it here instead of
+# typing it inside the desktop.
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiPairing
+metadata:
+  name: alice-laptop
+spec:
+  instanceRef: alice-desk
+  pin: "1234"
+  clientName: laptop

@@ -1,0 +1,10 @@
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiInstance
+metadata:
+  name: alice-desk
+spec:
+  image:
+    dataSource:
+      name: deskube-fedora-xfce
+  owner: alice
+  sshAuthorizedKeys: []

@@ -17,269 +17,134 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// KubeVirtVMReference defines a reference to a KubeVirt VirtualMachine
-type KubeVirtVMReference struct {
-	// Name of the referenced KubeVirt VirtualMachine
+// DataSourceRef names a CDI DataSource holding a prepared desktop disk.
+type DataSourceRef struct {
 	Name string `json:"name"`
-
-	// Namespace of the referenced KubeVirt VirtualMachine
+	// Namespace defaults to the instance namespace.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// RBACRoleRef defines a reference to a Kubernetes Role or ClusterRole
-type RBACRoleRef struct {
-	// Kind defines the type of role being referenced (Role or ClusterRole)
-	// +kubebuilder:validation:Enum=Role;ClusterRole
-	Kind string `json:"kind"`
-
-	// Name is the name of the referenced role
-	Name string `json:"name"`
-
-	// Namespace is the namespace of the referenced role (only for Role, not for ClusterRole)
+// ImageSource is the golden image a desktop boots from.
+type ImageSource struct {
+	DataSource DataSourceRef `json:"dataSource"`
+	// Size of the root disk. Cannot be smaller than the image.
+	// +kubebuilder:default="30Gi"
 	// +optional
-	Namespace string `json:"namespace,omitempty"`
+	Size resource.Quantity `json:"size,omitempty"`
 }
 
-// RBACAccessControl defines how RBAC is integrated with the VDI instance
-type RBACAccessControl struct {
-	// Enabled indicates whether RBAC controls are enforced
-	// +optional
-	Enabled bool `json:"enabled,omitempty"`
+// ExposeType selects how the stream reaches the client.
+// +kubebuilder:validation:Enum=NodePort;LoadBalancer
+type ExposeType string
 
-	// CreateRoles indicates whether the operator should create RBAC roles for the VDI instance
-	// +optional
-	CreateRoles bool `json:"createRoles,omitempty"`
+const (
+	ExposeNodePort     ExposeType = "NodePort"
+	ExposeLoadBalancer ExposeType = "LoadBalancer"
+)
 
-	// RolePrefix is the prefix used for generated roles
+// ExposeSpec controls the Service in front of the desktop.
+type ExposeSpec struct {
+	// +kubebuilder:default=NodePort
 	// +optional
-	RolePrefix string `json:"rolePrefix,omitempty"`
-
-	// DefaultRoleRef specifies a default role reference for users without specific roles
+	Type ExposeType `json:"type,omitempty"`
+	// BasePort pins the Sunshine base port. Allocated when empty.
+	// Moonlight derives the other ports from it: -5, +1, +9, +10, +11, +21.
+	// +kubebuilder:validation:Minimum=1029
+	// +kubebuilder:validation:Maximum=65514
 	// +optional
-	DefaultRoleRef *RBACRoleRef `json:"defaultRoleRef,omitempty"`
+	BasePort int32 `json:"basePort,omitempty"`
+	// Host overrides the address reported to clients, for example a DNS name.
+	// +optional
+	Host string `json:"host,omitempty"`
 }
 
-// SunshineConfiguration defines the configuration for the Sunshine streaming server
-type SunshineConfiguration struct {
-	// Image defines the Docker image for Sunshine
+// StreamSpec is passed into the Sunshine config inside the guest.
+type StreamSpec struct {
+	// +kubebuilder:validation:Enum=software;vaapi;nvenc;quicksync;amdvce;vulkan
+	// +kubebuilder:default=software
 	// +optional
-	Image string `json:"image,omitempty"`
-
-	// FPS defines the frames per second for streaming
+	Encoder string `json:"encoder,omitempty"`
+	// +kubebuilder:validation:Enum=x11;kms;wlr;kwin
+	// +kubebuilder:default=x11
 	// +optional
-	FPS int32 `json:"fps,omitempty"`
-
-	// Resolution defines the streaming resolution
-	// +optional
-	Resolution string `json:"resolution,omitempty"`
-
-	// Bitrate defines the streaming bitrate in Mbps
-	// +optional
-	Bitrate int32 `json:"bitrate,omitempty"`
-
-	// AdditionalOptions defines additional Sunshine configuration options
-	// +optional
-	AdditionalOptions map[string]string `json:"additionalOptions,omitempty"`
+	Capture string `json:"capture,omitempty"`
 }
 
-// MoonlightConfiguration defines the configuration for the Moonlight client
-type MoonlightConfiguration struct {
-	// Image defines the Docker image for Moonlight
-	// +optional
-	Image string `json:"image,omitempty"`
-
-	// ClientOptions defines client-specific configurations
-	// +optional
-	ClientOptions map[string]string `json:"clientOptions,omitempty"`
-}
-
-// UserAccessPolicy defines who can access this VDI instance
-type UserAccessPolicy struct {
-	// Type defines the type of access (user, group, serviceaccount)
-	// +kubebuilder:validation:Enum=user;group;serviceaccount
-	// +optional
-	Type string `json:"type,omitempty"`
-
-	// Name defines the name of the user, group, or serviceaccount
-	// +optional
-	Name string `json:"name,omitempty"`
-
-	// Username defines the username for access (deprecated, use Name instead)
-	// +optional
-	Username string `json:"username,omitempty"`
-
-	// Groups defines the groups allowed to access (deprecated, use separate UserAccessPolicy entries instead)
-	// +optional
-	Groups []string `json:"groups,omitempty"`
-
-	// AuthType defines the authentication type (e.g., basic, oauth, ldap)
-	// +optional
-	AuthType string `json:"authType,omitempty"`
-
-	// Permissions defines what operations are allowed
-	// +optional
-	Permissions []string `json:"permissions,omitempty"`
-
-	// RoleRef specifies a ClusterRole or Role that defines permissions
-	// +optional
-	RoleRef *RBACRoleRef `json:"roleRef,omitempty"`
-}
-
-// ResourceRequirements defines resource requirements for VDI components
-type ResourceRequirements struct {
-	// Sunshine defines resources for the Sunshine streaming server
-	// +optional
-	Sunshine *corev1.ResourceRequirements `json:"sunshine,omitempty"`
-
-	// Moonlight defines resources for the Moonlight client
-	// +optional
-	Moonlight *corev1.ResourceRequirements `json:"moonlight,omitempty"`
-}
-
-// NetworkConfiguration defines network settings for the VDI instance
-type NetworkConfiguration struct {
-	// ServiceType defines the type of service to expose VDI (ClusterIP, NodePort, LoadBalancer)
-	// +optional
-	ServiceType string `json:"serviceType,omitempty"`
-
-	// Port defines the port for the VDI service
-	// +optional
-	Port int32 `json:"port,omitempty"`
-
-	// ExposureMethod defines how to expose the VDI (Ingress, Route, LoadBalancer)
-	// +optional
-	ExposureMethod string `json:"exposureMethod,omitempty"`
-
-	// Hostname defines the hostname for accessing the VDI
-	// +optional
-	Hostname string `json:"hostname,omitempty"`
-
-	// TLS defines whether TLS should be enabled
-	// +optional
-	TLS bool `json:"tls,omitempty"`
-}
-
-// ComponentStatus defines the status of a VDI component (Sunshine or Moonlight)
-type ComponentStatus struct {
-	// Ready indicates if the component is ready
-	Ready bool `json:"ready"`
-
-	// PodName contains the name of the pod running the component
-	// +optional
-	PodName string `json:"podName,omitempty"`
-
-	// PodIP contains the IP address of the pod running the component
-	// +optional
-	PodIP string `json:"podIP,omitempty"`
-
-	// Version contains the version of the component
-	// +optional
-	Version string `json:"version,omitempty"`
-
-	// Message contains additional status information
-	// +optional
-	Message string `json:"message,omitempty"`
-}
-
-// ConnectionInfo defines the connection details for accessing the VDI instance
-type ConnectionInfo struct {
-	// AccessURL provides the URL for accessing the VDI
-	// +optional
-	AccessURL string `json:"accessURL,omitempty"`
-
-	// Port provides the port number for accessing the VDI
-	// +optional
-	Port int32 `json:"port,omitempty"`
-
-	// Credentials provides a reference to the secret containing credentials
-	// +optional
-	Credentials *corev1.SecretReference `json:"credentials,omitempty"`
-
-	// ConnectionParams provides additional connection parameters
-	// +optional
-	ConnectionParams map[string]string `json:"connectionParams,omitempty"`
-}
-
-// VdiInstanceSpec defines the desired state of VdiInstance
+// VdiInstanceSpec defines one desktop for one owner.
 type VdiInstanceSpec struct {
-	// ProvisionSource specifies how this VDI instance should be provisioned
-	// +kubebuilder:validation:Enum=Template;Direct
+	Image ImageSource `json:"image"`
+	// InstanceType is a VirtualMachineClusterInstancetype name.
+	// +kubebuilder:default=u1.xlarge
 	// +optional
-	ProvisionSource ProvisionSource `json:"provisionSource,omitempty"`
-
-	// TemplateRef references a VdiTemplate to use for creating this instance
-	// Only used when provisionSource is Template
+	InstanceType string `json:"instanceType,omitempty"`
+	// Preference is a VirtualMachineClusterPreference name.
+	// +kubebuilder:default=fedora
 	// +optional
-	TemplateRef *VdiTemplateRef `json:"templateRef,omitempty"`
-
-	// KubeVirtVMRef refers to the KubeVirt VirtualMachine that this VDI instance will connect to
-	// Required when provisionSource is Direct or not specified
+	Preference string `json:"preference,omitempty"`
+	// Owner is the Kubernetes user allowed to read this instance and pair clients.
 	// +optional
-	KubeVirtVMRef *KubeVirtVMReference `json:"kubeVirtVMRef,omitempty"`
-
-	// SunshineConfig defines the configuration for the Sunshine streaming server
+	Owner string `json:"owner,omitempty"`
+	// Running is the desired power state.
+	// +kubebuilder:default=true
 	// +optional
-	SunshineConfig SunshineConfiguration `json:"sunshineConfig,omitempty"`
-
-	// MoonlightConfig defines the configuration for the Moonlight client
+	Running *bool `json:"running,omitempty"`
 	// +optional
-	MoonlightConfig MoonlightConfiguration `json:"moonlightConfig,omitempty"`
-
-	// UserAccess defines who can access this VDI instance
+	Expose ExposeSpec `json:"expose,omitempty"`
 	// +optional
-	UserAccess []UserAccessPolicy `json:"userAccess,omitempty"`
-
-	// AccessControl defines RBAC integration for access control
+	Stream StreamSpec `json:"stream,omitempty"`
+	// SSHAuthorizedKeys are installed for the admin user in the guest.
 	// +optional
-	AccessControl *RBACAccessControl `json:"accessControl,omitempty"`
-
-	// Resources defines the compute resources for the VDI components
-	// +optional
-	Resources ResourceRequirements `json:"resources,omitempty"`
-
-	// NetworkConfig defines network settings for the VDI instance
-	// +optional
-	NetworkConfig NetworkConfiguration `json:"networkConfig,omitempty"`
+	SSHAuthorizedKeys []string `json:"sshAuthorizedKeys,omitempty"`
 }
 
-// VdiInstanceStatus defines the observed state of VdiInstance
+// VdiInstancePhase is a one word summary of the status conditions.
+type VdiInstancePhase string
+
+const (
+	PhaseProvisioning VdiInstancePhase = "Provisioning"
+	PhaseStarting     VdiInstancePhase = "Starting"
+	PhaseReady        VdiInstancePhase = "Ready"
+	PhaseStopped      VdiInstancePhase = "Stopped"
+	PhaseFailed       VdiInstancePhase = "Failed"
+)
+
+// VdiInstanceStatus reports what a client needs to connect.
 type VdiInstanceStatus struct {
-	// Phase represents the current phase of the VDI instance (Pending, Running, Failed, etc.)
-	Phase string `json:"phase,omitempty"`
-
-	// Conditions represents the latest available observations of the VDI state
 	// +optional
+	Phase VdiInstancePhase `json:"phase,omitempty"`
+	// Address is what to type in Moonlight, host:port.
+	// +optional
+	Address string `json:"address,omitempty"`
+	// +optional
+	BasePort int32 `json:"basePort,omitempty"`
+	// AdminSecret holds the Sunshine web UI credentials.
+	// +optional
+	AdminSecret string `json:"adminSecret,omitempty"`
+	// SessionState is free or busy, from Sunshine serverinfo.
+	// +optional
+	SessionState string `json:"sessionState,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +optional
+	// +listType=map
+	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// VMStatus represents the status of the underlying KubeVirt VM
-	// +optional
-	VMStatus string `json:"vmStatus,omitempty"`
-
-	// SunshineStatus contains information about the Sunshine streaming server
-	// +optional
-	SunshineStatus ComponentStatus `json:"sunshineStatus,omitempty"`
-
-	// MoonlightStatus contains information about the Moonlight client
-	// +optional
-	MoonlightStatus ComponentStatus `json:"moonlightStatus,omitempty"`
-
-	// ConnectionDetails contains information needed to connect to the VDI instance
-	// +optional
-	ConnectionDetails ConnectionInfo `json:"connectionDetails,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`
+// +kubebuilder:printcolumn:name="Session",type=string,JSONPath=`.status.sessionState`
+// +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// VdiInstance is the Schema for the vdiinstances API
+// VdiInstance is a streamed virtual desktop.
 type VdiInstance struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -290,7 +155,7 @@ type VdiInstance struct {
 
 // +kubebuilder:object:root=true
 
-// VdiInstanceList contains a list of VdiInstance
+// VdiInstanceList contains a list of VdiInstance.
 type VdiInstanceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

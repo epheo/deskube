@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/vdi.desku.be_vdiinstances.yaml
+- bases/vdi.desku.be_vdipairings.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

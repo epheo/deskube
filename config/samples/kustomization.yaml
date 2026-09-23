@@ -1,11 +1,5 @@
 ## Append samples of your project ##
 resources:
 - vdi_v1alpha1_vdiinstance.yaml
-- vdi_v1alpha1_vdiinstance_rbac.yaml
-- vdi_v1alpha1_vditemplate.yaml
-- vdi_v1alpha1_vdiinstance_from_template.yaml
-- vdi_v1alpha1_vdiinstance_with_conditions.yaml
-# These are examples only and not meant to be applied directly
-# - vdi_v1alpha1_vdiinstance_with_conditions_example.yaml
-# - vdi_v1alpha1_vdiinstance_error_conditions_example.yaml
+- vdi_v1alpha1_vdipairing.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -5,24 +5,16 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - apps
+  - ""
   resources:
-  - deployments
-  - statefulsets
+  - nodes
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - ""
   resources:
-  - configmaps
-  - persistentvolumeclaims
-  - pods
   - secrets
   - services
   verbs:
@@ -37,15 +29,14 @@ rules:
   - kubevirt.io
   resources:
   - virtualmachineinstances
-  - virtualmachines
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - networking.k8s.io
+  - kubevirt.io
   resources:
-  - ingresses
+  - virtualmachines
   verbs:
   - create
   - delete
@@ -57,22 +48,8 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
-  - clusterrolebindings
-  - clusterroles
   - rolebindings
   - roles
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - route.openshift.io
-  resources:
-  - routes
   verbs:
   - create
   - delete
@@ -85,7 +62,7 @@ rules:
   - vdi.desku.be
   resources:
   - vdiinstances
-  - vditemplates
+  - vdipairings
   verbs:
   - create
   - delete
@@ -98,14 +75,13 @@ rules:
   - vdi.desku.be
   resources:
   - vdiinstances/finalizers
-  - vditemplates/finalizers
   verbs:
   - update
 - apiGroups:
   - vdi.desku.be
   resources:
   - vdiinstances/status
-  - vditemplates/status
+  - vdipairings/status
   verbs:
   - get
   - patch

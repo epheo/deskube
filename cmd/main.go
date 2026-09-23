@@ -38,7 +38,7 @@ import (
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
 	"github.com/deskube/deskube/internal/controller"
-	routev1 "github.com/openshift/api/route/v1"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,7 +52,7 @@ func init() {
 
 	utilruntime.Must(vdiv1alpha1.AddToScheme(scheme))
 	// Add OpenShift route scheme
-	utilruntime.Must(routev1.AddToScheme(scheme))
+	utilruntime.Must(kubevirtv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -77,6 +77,9 @@ func main() {
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
+	var probeExternal bool
+	flag.BoolVar(&probeExternal, "probe-external", false,
+		"Reach Sunshine through the client address instead of the ClusterIP, for a manager outside the cluster.")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
@@ -149,18 +152,20 @@ func main() {
 	}
 
 	if err = (&controller.VdiInstanceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		ProbeExternal: probeExternal,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VdiInstance")
 		os.Exit(1)
 	}
 
-	if err = (&controller.VdiTemplateReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	if err = (&controller.VdiPairingReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		ProbeExternal: probeExternal,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VdiTemplate")
+		setupLog.Error(err, "unable to create controller", "controller", "VdiPairing")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
