@@ -76,6 +76,19 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 `spec.idleTimeout: 30m` stops it after half an hour without a session;
 the operator flips `running` to false, set it back to true to resume.
 
+## Console plugin
+
+`console/` is an OpenShift console dynamic plugin. It adds a
+**Virtual Desktops** page under Virtualization: list, create, start,
+stop, delete, and pair Moonlight through a VdiPairing. Owners see
+their namespace; admins see all.
+
+    make console-build console-push CONTAINER_TOOL=podman CONSOLE_IMG=<registry>/console-plugin:dev
+    make console-deploy CONSOLE_IMG=<registry>/console-plugin:dev
+
+The deploy target registers the ConsolePlugin and enables it in the
+console operator. The console pods restart once, then the item appears.
+
 ## Status
 
 `status.phase` is Provisioning, Starting, Ready, Stopping, Stopped, or Failed.
