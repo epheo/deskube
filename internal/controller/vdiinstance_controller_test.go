@@ -19,8 +19,8 @@ package controller
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	. "github.com/onsi/ginkgo/v2" //nolint:revive,staticcheck
+	. "github.com/onsi/gomega"    //nolint:revive,staticcheck
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -29,6 +29,16 @@ import (
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
 )
+
+// Helper function for tests to find a condition by type
+func findConditionInList(conditions []metav1.Condition, conditionType string) *metav1.Condition {
+	for i := range conditions {
+		if conditions[i].Type == conditionType {
+			return &conditions[i]
+		}
+	}
+	return nil
+}
 
 var _ = Describe("VdiInstance Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -77,8 +87,40 @@ var _ = Describe("VdiInstance Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			// Check if the standard conditions were initialized
+			updatedResource := &vdiv1alpha1.VdiInstance{}
+			err = k8sClient.Get(ctx, typeNamespacedName, updatedResource)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Validating that initial conditions were set")
+			Expect(updatedResource.Status.Conditions).NotTo(BeEmpty())
+
+			// Check for all required standard conditions
+			conditionTypes := []string{
+				ConditionReady,
+				ConditionAvailable,
+				ConditionProgressing,
+				ConditionVMReady,
+				ConditionStreamingReady,
+				ConditionNetworkReady,
+				ConditionRBACReady,
+			}
+
+			for _, condType := range conditionTypes {
+				condition := findConditionInList(updatedResource.Status.Conditions, condType)
+				Expect(condition).NotTo(BeNil(), "Expected condition %s to be set", condType)
+			}
+
+			// Initial reconciliation should set Progressing to true
+			progressingCond := findConditionInList(updatedResource.Status.Conditions, ConditionProgressing)
+			Expect(progressingCond).NotTo(BeNil())
+			Expect(progressingCond.Status).To(Equal(metav1.ConditionTrue))
+
+			// Ready should be false initially
+			readyCond := findConditionInList(updatedResource.Status.Conditions, ConditionReady)
+			Expect(readyCond).NotTo(BeNil())
+			Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
 		})
 	})
 })

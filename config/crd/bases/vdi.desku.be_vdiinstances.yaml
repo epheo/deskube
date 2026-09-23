@@ -76,8 +76,9 @@ spec:
                     type: string
                 type: object
               kubeVirtVMRef:
-                description: KubeVirtVMRef refers to the KubeVirt VirtualMachine that
-                  this VDI instance will connect to
+                description: |-
+                  KubeVirtVMRef refers to the KubeVirt VirtualMachine that this VDI instance will connect to
+                  Required when provisionSource is Direct or not specified
                 properties:
                   name:
                     description: Name of the referenced KubeVirt VirtualMachine
@@ -123,6 +124,17 @@ spec:
                     description: TLS defines whether TLS should be enabled
                     type: boolean
                 type: object
+              provisionSource:
+                allOf:
+                - enum:
+                  - Template
+                  - Direct
+                - enum:
+                  - Template
+                  - Direct
+                description: ProvisionSource specifies how this VDI instance should
+                  be provisioned
+                type: string
               resources:
                 description: Resources defines the compute resources for the VDI components
                 properties:
@@ -271,6 +283,26 @@ spec:
                     description: Resolution defines the streaming resolution
                     type: string
                 type: object
+              templateRef:
+                description: |-
+                  TemplateRef references a VdiTemplate to use for creating this instance
+                  Only used when provisionSource is Template
+                properties:
+                  instanceName:
+                    description: |-
+                      InstanceName allows specifying a custom name for the instance
+                      If empty, one will be generated using the template's DefaultInstancePrefix
+                    type: string
+                  name:
+                    description: Name of the VdiTemplate
+                    type: string
+                  namespace:
+                    description: Namespace of the VdiTemplate (optional - defaults
+                      to the same namespace)
+                    type: string
+                required:
+                - name
+                type: object
               userAccess:
                 description: UserAccess defines who can access this VDI instance
                 items:
@@ -329,8 +361,6 @@ spec:
                       type: string
                   type: object
                 type: array
-            required:
-            - kubeVirtVMRef
             type: object
           status:
             description: VdiInstanceStatus defines the observed state of VdiInstance

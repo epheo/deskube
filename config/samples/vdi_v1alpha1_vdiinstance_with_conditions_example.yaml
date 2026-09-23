@@ -1,0 +1,111 @@
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiInstance
+metadata:
+  name: gaming-desktop-with-conditions
+  namespace: default
+  annotations:
+    description: "Example VDI instance showing conditions usage"
+spec:
+  provisionSource: Direct
+  kubeVirtVMRef:
+    name: gaming-vm
+    namespace: vms
+  sunshineConfig:
+    fps: 120
+    bitrate: 80  # High bitrate for gaming
+    resolution: "2560x1440"
+    additionalOptions:
+      adaptive-sync: "enabled"
+      hdr: "enabled"
+  networkConfig:
+    serviceType: ClusterIP
+    exposureMethod: Ingress
+    hostname: "gaming.vdi.example.com"
+    tls: true
+  userAccess:
+  - type: user
+    name: "gamer1"
+    permissions:
+    - "connect"
+    - "configure"
+  - type: user
+    name: "gamer2" 
+    permissions:
+    - "connect"
+  accessControl:
+    enabled: true
+    createRoles: true
+    rolePrefix: "gaming-vdi"
+  resources:
+    sunshine:
+      limits:
+        cpu: "4"
+        memory: "4Gi"
+      requests:
+        cpu: "2"
+        memory: "2Gi"
+---
+# Example of what kubectl get would return after reconciliation
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiInstance
+metadata:
+  name: gaming-desktop-with-conditions
+  namespace: default
+  annotations:
+    description: "Example VDI instance showing conditions usage"
+status:
+  phase: Running
+  vmStatus: Ready
+  conditions:
+  - type: Ready
+    status: "True"
+    reason: ReconcileSuccess
+    message: "VDI instance is ready for use"
+    lastTransitionTime: "2025-04-28T10:15:23Z"
+    observedGeneration: 1
+  - type: Available
+    status: "True"
+    reason: ReconcileSuccess
+    message: "VDI instance is available for connection"
+    lastTransitionTime: "2025-04-28T10:15:23Z"
+    observedGeneration: 1
+  - type: Progressing
+    status: "False"
+    reason: ReconcileSuccess
+    message: "VDI instance is now ready"
+    lastTransitionTime: "2025-04-28T10:15:23Z"
+    observedGeneration: 1
+  - type: VMReady
+    status: "True"
+    reason: ReconcileSuccess
+    message: "KubeVirt VM is ready"
+    lastTransitionTime: "2025-04-28T10:12:15Z"
+    observedGeneration: 1
+  - type: StreamingReady
+    status: "True"
+    reason: ReconcileSuccess
+    message: "Streaming components are ready"
+    lastTransitionTime: "2025-04-28T10:13:47Z"
+    observedGeneration: 1
+  - type: NetworkReady
+    status: "True"
+    reason: ReconcileSuccess
+    message: "Network resources successfully configured"
+    lastTransitionTime: "2025-04-28T10:14:32Z"
+    observedGeneration: 1
+  - type: RBACReady
+    status: "True"
+    reason: ReconcileSuccess
+    message: "RBAC resources successfully configured"
+    lastTransitionTime: "2025-04-28T10:15:10Z"
+    observedGeneration: 1
+  connectionDetails:
+    accessURL: "gaming.vdi.example.com"
+    port: 47989
+    connectionParams:
+      protocol: "sunshine"
+      username: "sunshine"
+  sunshineStatus:
+    ready: true
+    podName: "gaming-desktop-with-conditions-sunshine"
+    message: "Sunshine components created successfully"

@@ -114,6 +114,8 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Initialize status if it's a new resource
 	if vdi.Status.Phase == "" {
 		vdi.Status.Phase = PhasePending
+		// Initialize all standard conditions
+		initializeConditions(vdi)
 		if err := r.Status().Update(ctx, vdi); err != nil {
 			logger.Error(err, "Failed to update VdiInstance status")
 			return ctrl.Result{}, err
@@ -125,6 +127,11 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.processTemplateBasedInstance(ctx, vdi); err != nil {
 			logger.Error(err, "Failed to process template-based instance")
 			vdi.Status.Phase = PhaseFailed
+
+			// Set degraded condition
+			setCondition(vdi, ConditionDegraded, metav1.ConditionTrue,
+				"TemplateProcessingFailed", fmt.Sprintf("Failed to process template-based instance: %v", err))
+
 			if updateErr := r.Status().Update(ctx, vdi); updateErr != nil {
 				logger.Error(updateErr, "Failed to update VdiInstance status after template processing error")
 			}
@@ -151,14 +158,32 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.handleDeletion(ctx, vdi)
 	}
 
+	// Set progressing condition
+	setCondition(vdi, ConditionProgressing, metav1.ConditionTrue,
+		ReasonReconcileInProgress, "Reconciling VDI instance")
+
 	// Check KubeVirt VM status
 	vmStatus, err := r.checkKubeVirtVM(ctx, vdi)
 	if err != nil {
 		vdi.Status.Phase = PhaseFailed
 		vdi.Status.VMStatus = fmt.Sprintf("Error checking VM: %v", err)
+
+		// Set degraded condition
+		setCondition(vdi, ConditionDegraded, metav1.ConditionTrue,
+			ReasonVMNotReady, fmt.Sprintf("Error checking VM: %v", err))
+
 		if updateErr := r.Status().Update(ctx, vdi); updateErr != nil {
 			logger.Error(updateErr, "Failed to update VdiInstance status after VM check error")
 		}
+
+		// Run detailed connectivity diagnostics when appropriate
+		if !errors.IsNotFound(err) {
+			logger.Info("Running VM connectivity diagnostics")
+			if diagErr := r.debugKubeVirtVMConnectivity(ctx, vdi); diagErr != nil {
+				logger.Error(diagErr, "VM connectivity diagnostics failed")
+			}
+		}
+
 		return ctrl.Result{}, err
 	}
 	vdi.Status.VMStatus = vmStatus
@@ -167,6 +192,11 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.reconcileSunshineComponents(ctx, vdi); err != nil {
 		logger.Error(err, "Failed to reconcile Sunshine components")
 		vdi.Status.Phase = PhaseFailed
+
+		// Set degraded condition
+		setCondition(vdi, ConditionDegraded, metav1.ConditionTrue,
+			ReasonStreamingNotReady, fmt.Sprintf("Failed to reconcile Sunshine components: %v", err))
+
 		if updateErr := r.Status().Update(ctx, vdi); updateErr != nil {
 			logger.Error(updateErr, "Failed to update VdiInstance status after Sunshine reconcile error")
 		}
@@ -176,6 +206,14 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Set up networking
 	if err := r.reconcileNetworking(ctx, vdi); err != nil {
 		logger.Error(err, "Failed to reconcile networking")
+
+		// Set degraded condition
+		setCondition(vdi, ConditionDegraded, metav1.ConditionTrue,
+			ReasonNetworkNotReady, fmt.Sprintf("Failed to reconcile networking: %v", err))
+
+		if updateErr := r.Status().Update(ctx, vdi); updateErr != nil {
+			logger.Error(updateErr, "Failed to update VdiInstance status after networking reconcile error")
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -183,26 +221,42 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.reconcileRBAC(ctx, vdi); err != nil {
 		logger.Error(err, "Failed to reconcile RBAC for VDI instance")
 		vdi.Status.Phase = PhaseFailed
+
+		// Set degraded condition
+		setCondition(vdi, ConditionDegraded, metav1.ConditionTrue,
+			ReasonRBACNotReady, fmt.Sprintf("Failed to reconcile RBAC: %v", err))
+
 		if updateErr := r.Status().Update(ctx, vdi); updateErr != nil {
 			logger.Error(updateErr, "Failed to update VdiInstance status after RBAC reconcile error")
 		}
 		return ctrl.Result{}, err
 	}
 
-	// Set up RBAC
-	if err := r.reconcileRBAC(ctx, vdi); err != nil {
-		logger.Error(err, "Failed to reconcile RBAC")
-		return ctrl.Result{}, err
+	// Update Ready and Available conditions based on all the other conditions
+	updateReadyCondition(vdi)
+
+	// Set phase based on Ready condition
+	if isConditionTrue(vdi, ConditionReady) {
+		vdi.Status.Phase = PhaseRunning
+
+		// If Ready is true, mark Progressing as false
+		setCondition(vdi, ConditionProgressing, metav1.ConditionFalse,
+			ReasonReconcileSuccess, "VDI instance is now ready")
+	} else if isConditionTrue(vdi, ConditionProgressing) {
+		vdi.Status.Phase = PhasePending
+	} else if isAnyConditionTrue(vdi, ConditionDegraded) {
+		vdi.Status.Phase = PhaseFailed
 	}
 
-	// Update status
-	vdi.Status.Phase = PhaseRunning
 	if err := r.Status().Update(ctx, vdi); err != nil {
 		logger.Error(err, "Failed to update VdiInstance status")
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("VdiInstance reconciliation completed successfully")
+	logger.Info("VdiInstance reconciliation completed successfully",
+		"phase", vdi.Status.Phase,
+		"ready", isConditionTrue(vdi, ConditionReady))
+
 	// Requeue after 1 minute to check status periodically
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
@@ -218,6 +272,16 @@ func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *VdiInstanceReconciler) handleDeletion(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Cleaning up resources for deleted VdiInstance", "namespace", vdi.Namespace, "name", vdi.Name)
+
+	// Set the terminating condition
+	setCondition(vdi, ConditionProgressing, metav1.ConditionTrue,
+		"Terminating", "VDI instance is being deleted")
+
+	// Mark all component conditions as false when deleting
+	setCondition(vdi, ConditionReady, metav1.ConditionFalse,
+		"Terminating", "VDI instance is being deleted")
+	setCondition(vdi, ConditionAvailable, metav1.ConditionFalse,
+		"Terminating", "VDI instance is being deleted")
 
 	// Check if the finalizer is still present
 	if controllerutil.ContainsFinalizer(vdi, "vdi.desku.be/finalizer") {
@@ -253,10 +317,11 @@ func (r *VdiInstanceReconciler) handleDeletion(ctx context.Context, vdi *vdiv1al
 
 // checkKubeVirtVM verifies the KubeVirt VM exists and returns its status
 func (r *VdiInstanceReconciler) checkKubeVirtVM(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (string, error) {
-	logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithValues("vdiName", vdi.Name, "namespace", vdi.Namespace)
 
 	// Check if KubeVirtVMRef is provided
 	if vdi.Spec.KubeVirtVMRef == nil {
+		logger.Error(nil, "Missing KubeVirt VM reference")
 		return "", fmt.Errorf("KubeVirtVMRef is not specified in VDI instance")
 	}
 
@@ -268,8 +333,12 @@ func (r *VdiInstanceReconciler) checkKubeVirtVM(ctx context.Context, vdi *vdiv1a
 
 	vmName := vdi.Spec.KubeVirtVMRef.Name
 	if vmName == "" {
+		logger.Error(nil, "Empty VM name in KubeVirtVMRef")
 		return "", fmt.Errorf("VM name is empty in KubeVirtVMRef")
 	}
+
+	logger = logger.WithValues("vmName", vmName, "vmNamespace", vmNamespace)
+	logger.Info("Checking KubeVirt VM status")
 
 	// Get the KubeVirt VM using the explicit API type
 	vm := &kubevirtv1.VirtualMachine{}
@@ -277,29 +346,53 @@ func (r *VdiInstanceReconciler) checkKubeVirtVM(ctx context.Context, vdi *vdiv1a
 
 	if err := r.Get(ctx, vmKey, vm); err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info("KubeVirt VM not found", "vmName", vmName, "vmNamespace", vmNamespace)
+			logger.Info("KubeVirt VM not found")
+			setCondition(vdi, ConditionVMReady, metav1.ConditionFalse,
+				ReasonVMNotFound, fmt.Sprintf("VM %s not found in namespace %s", vmName, vmNamespace))
 			return "NotFound", err
 		}
-		logger.Error(err, "Failed to get KubeVirt VM", "vmName", vmName, "vmNamespace", vmNamespace)
-		return "Error", err
+		logger.Error(err, "Failed to get KubeVirt VM")
+		setCondition(vdi, ConditionVMReady, metav1.ConditionFalse,
+			ReasonReconcileError, fmt.Sprintf("Error retrieving VM: %v", err))
+		return "Error", fmt.Errorf("error retrieving VM: %w", err)
 	}
 
 	// Check VM status - more comprehensive status check
-	logger.Info("Found KubeVirt VM", "name", vm.Name, "status", vm.Status.PrintableStatus)
+	logger.Info("Found KubeVirt VM", "status", vm.Status.PrintableStatus, "ready", vm.Status.Ready)
 
 	// Check if VM is running based on the conditions and printable status
 	if vm.Status.Ready {
+		// Update VM condition to ready
+		setCondition(vdi, ConditionVMReady, metav1.ConditionTrue,
+			ReasonReconcileSuccess, "KubeVirt VM is ready")
 		return "Ready", nil
 	}
 
+	// Check if the VM is running but not yet fully ready
 	if vm.Status.PrintableStatus == "Running" || vm.Status.PrintableStatus == "Starting" {
+		setCondition(vdi, ConditionVMReady, metav1.ConditionFalse,
+			ReasonReconcileInProgress, fmt.Sprintf("VM is %s but not yet ready", vm.Status.PrintableStatus))
 		return "Starting", nil
 	}
 
+	// Check if the VM is stopped
 	if vm.Status.PrintableStatus == "Stopped" || vm.Status.PrintableStatus == "Stopping" {
+		setCondition(vdi, ConditionVMReady, metav1.ConditionFalse,
+			ReasonVMNotReady, fmt.Sprintf("VM is %s", vm.Status.PrintableStatus))
 		return "Stopped", nil
 	}
 
+	// Check for problematic states
+	if vm.Status.PrintableStatus == "CrashLoopBackOff" || vm.Status.PrintableStatus == "Error" {
+		logger.Error(nil, "VM is in error state", "status", vm.Status.PrintableStatus)
+		setCondition(vdi, ConditionVMReady, metav1.ConditionFalse,
+			ReasonVMNotReady, fmt.Sprintf("VM is in error state: %s", vm.Status.PrintableStatus))
+		return string(vm.Status.PrintableStatus), fmt.Errorf("VM is in error state: %s", vm.Status.PrintableStatus)
+	}
+
+	// For any other status, just return it
+	setCondition(vdi, ConditionVMReady, metav1.ConditionFalse,
+		ReasonVMNotReady, fmt.Sprintf("VM status: %s", vm.Status.PrintableStatus))
 	return string(vm.Status.PrintableStatus), nil
 }
 
@@ -315,6 +408,8 @@ func (r *VdiInstanceReconciler) reconcileSunshineComponents(ctx context.Context,
 
 	// Create Sunshine configuration ConfigMap
 	if err := r.reconcileSunshineConfigMap(ctx, vdi); err != nil {
+		setCondition(vdi, ConditionStreamingReady, metav1.ConditionFalse,
+			ReasonStreamingNotReady, fmt.Sprintf("Failed to configure Sunshine: %v", err))
 		return fmt.Errorf("failed to reconcile Sunshine ConfigMap: %w", err)
 	}
 
@@ -326,6 +421,10 @@ func (r *VdiInstanceReconciler) reconcileSunshineComponents(ctx context.Context,
 	}
 
 	vdi.Status.SunshineStatus = sunshineStatus
+
+	// Update streaming condition
+	setCondition(vdi, ConditionStreamingReady, metav1.ConditionTrue,
+		ReasonReconcileSuccess, "Streaming components are ready")
 
 	logger.Info("Sunshine components set up successfully")
 	return nil
@@ -482,8 +581,14 @@ func (r *VdiInstanceReconciler) reconcileNetworking(ctx context.Context, vdi *vd
 	logger := log.FromContext(ctx)
 	logger.Info("Setting up networking for VDI instance", "namespace", vdi.Namespace, "name", vdi.Name)
 
+	// Set network condition to progressing
+	setCondition(vdi, ConditionNetworkReady, metav1.ConditionFalse,
+		ReasonReconcileInProgress, "Setting up network resources")
+
 	// Create service for Sunshine streaming server
 	if err := r.reconcileService(ctx, vdi); err != nil {
+		setCondition(vdi, ConditionNetworkReady, metav1.ConditionFalse,
+			ReasonNetworkNotReady, fmt.Sprintf("Failed to create service: %v", err))
 		return fmt.Errorf("failed to reconcile service: %w", err)
 	}
 
@@ -513,6 +618,10 @@ func (r *VdiInstanceReconciler) reconcileNetworking(ctx context.Context, vdi *vd
 		"protocol": "sunshine",
 		"username": "sunshine",
 	}
+
+	// Set network condition to ready
+	setCondition(vdi, ConditionNetworkReady, metav1.ConditionTrue,
+		ReasonReconcileSuccess, "Network resources successfully configured")
 
 	return nil
 }
@@ -892,9 +1001,15 @@ func (r *VdiInstanceReconciler) cleanupNetworkingResources(ctx context.Context, 
 func (r *VdiInstanceReconciler) reconcileRBAC(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	logger := log.FromContext(ctx)
 
+	// Set RBAC condition to progressing
+	setCondition(vdi, ConditionRBACReady, metav1.ConditionFalse,
+		ReasonReconcileInProgress, "Setting up RBAC resources")
+
 	// Skip RBAC setup if access control is not explicitly enabled
 	if vdi.Spec.AccessControl == nil || !vdi.Spec.AccessControl.Enabled {
 		logger.Info("RBAC integration not enabled, skipping RBAC reconciliation")
+		setCondition(vdi, ConditionRBACReady, metav1.ConditionTrue,
+			ReasonReconcileSuccess, "RBAC integration not enabled, no setup needed")
 		return nil
 	}
 
@@ -913,10 +1028,16 @@ func (r *VdiInstanceReconciler) reconcileRBAC(ctx context.Context, vdi *vdiv1alp
 		if access.RoleRef != nil {
 			if err := r.createRoleBinding(ctx, vdi, access); err != nil {
 				logger.Error(err, "Failed to create role binding", "userAccess", access)
+				setCondition(vdi, ConditionRBACReady, metav1.ConditionFalse,
+					ReasonRBACNotReady, fmt.Sprintf("Failed to create role binding: %v", err))
 				return err
 			}
 		}
 	}
+
+	// Set RBAC condition to ready
+	setCondition(vdi, ConditionRBACReady, metav1.ConditionTrue,
+		ReasonReconcileSuccess, "RBAC resources successfully configured")
 
 	return nil
 }

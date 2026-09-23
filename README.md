@@ -27,6 +27,8 @@ DeskuBe is an OpenShift/Kubernetes operator that provides Virtual Desktop Infras
 - [Accessing VDI Instances](#accessing-vdi-instances)
 - [Advanced Usage Scenarios](#advanced-usage-scenarios)
 - [Status and Monitoring](#status-and-monitoring)
+  - [Kubernetes Conditions](#kubernetes-conditions)
+  - [Metrics and Monitoring](#metrics-and-monitoring)
 - [Troubleshooting](#troubleshooting)
 - [Integration with OpenShift](#integration-with-openshift)
 - [RBAC Integration](#rbac-integration)
@@ -77,6 +79,209 @@ DeskuBe follows the Kubernetes operator pattern and consists of:
    - **Moonlight Client**: Optional client configuration for connecting to VDI
    - **Network Management**: Exposes VDI via various methods (Ingress, Route, etc.)
 
+#### Component Architecture Diagram
+
+The following diagram illustrates how DeskuBe components interact with each other and with the Kubernetes/OpenShift cluster:
+
+```ascii
+                                 ┌───────────────────┐
+                                 │                   │
+                   watches       │   VdiInstance     │
+              ┌─────────────────►│   Custom Resource │
+              │                  │                   │
+              │                  └───────────────────┘
+              │                           │
+              │                           │ references
+┌─────────────┴──────────────┐            │
+│                            │            │
+│    DeskuBe Controller      │            ▼
+│                            │    ┌───────────────────┐
+│  ┌────────────────────┐    │    │                   │
+│  │ Reconciliation     │    │    │   KubeVirt VM     │
+│  │ Loop               │    │    │                   │
+│  └────────────────────┘    │    └───────────────────┘
+│           │                │             ▲
+│           │                │             │
+│           ▼                │             │ connects to
+│  ┌────────────────────┐    │    ┌───────┴───────────┐
+│  │ Networking         │    │    │                   │
+│  │ Configuration      │────┼───►│  Sunshine Server  │
+│  └────────────────────┘    │    │  Deployment       │
+│           │                │    │                   │
+└───────────┼────────────────┘    └───────────────────┘
+            │                               │
+            │                               │ streams to
+            │                               ▼
+            │                     ┌───────────────────┐
+            │                     │                   │
+            │                     │  Moonlight Client │
+            ▼                     │                   │
+┌─────────────────────────┐       └───────────────────┘
+│                         │                 ▲
+│ Kubernetes Services     │                 │
+│ Ingress / Route /       │─────────────────┘
+│ LoadBalancer            │      connects via
+│                         │
+└─────────────────────────┘
+```
+
+#### Deployment Architecture Diagrams
+
+The following diagrams illustrate different deployment scenarios for DeskuBe.
+
+**Standard OpenShift Deployment:**
+
+```ascii
+┌─────────────────────────────────────────────────────────┐
+│ OpenShift Cluster                                       │
+│                                                         │
+│  ┌─────────────────┐      ┌─────────────────────────┐   │
+│  │                 │      │                         │   │
+│  │  Control Plane  │      │  DeskuBe Operator       │   │
+│  │                 │      │  Namespace              │   │
+│  └─────────────────┘      │                         │   │
+│                           │  ┌───────────────────┐  │   │
+│                           │  │ Controller        │  │   │
+│                           │  │ Manager           │  │   │
+│                           │  └───────────────────┘  │   │
+│                           │                         │   │
+│                           └─────────────────────────┘   │
+│                                        │                │
+│                                        ▼                │
+│  ┌────────────────────────┐   ┌─────────────────────┐   │
+│  │                        │   │                     │   │
+│  │  User Workload         │   │  VdiInstance        │   │
+│  │  Namespace             │   │  Namespace          │   │
+│  │                        │   │                     │   │
+│  │  ┌──────────────────┐  │   │  ┌───────────────┐  │   │
+│  │  │                  │  │   │  │ KubeVirt VMs  │  │   │
+│  │  │ User             │  │   │  │               │  │   │
+│  │  │ Applications     │  │   │  └───────────────┘  │   │
+│  │  │                  │  │   │         │           │   │
+│  │  └──────────────────┘  │   │         ▼           │   │
+│  │                        │   │  ┌───────────────┐  │   │
+│  └────────────────────────┘   │  │ Sunshine Pods │  │   │
+│                               │  │               │  │   │
+│                               │  └───────────────┘  │   │
+│                               │         │           │   │
+│                               │         ▼           │   │
+│                               │  ┌───────────────┐  │   │
+│                               │  │ OpenShift     │  │   │
+│                               │  │ Routes        │  │   │
+│                               │  └───────────────┘  │   │
+│                               │                     │   │
+│                               └─────────────────────┘   │
+│                                        │                │
+└─────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+                                ┌─────────────────┐
+                                │                 │
+                                │ External Users  │
+                                │ with Moonlight  │
+                                │ Client          │
+                                │                 │
+                                └─────────────────┘
+```
+
+**Vanilla Kubernetes Deployment:**
+
+```ascii
+┌─────────────────────────────────────────────────────────┐
+│ Kubernetes Cluster                                      │
+│                                                         │
+│  ┌─────────────────┐      ┌─────────────────────────┐   │
+│  │                 │      │                         │   │
+│  │  Control Plane  │      │  DeskuBe Operator       │   │
+│  │                 │      │  Namespace              │   │
+│  └─────────────────┘      │                         │   │
+│                           │  ┌───────────────────┐  │   │
+│                           │  │ Controller        │  │   │
+│                           │  │ Manager           │  │   │
+│                           │  └───────────────────┘  │   │
+│                           │                         │   │
+│                           └─────────────────────────┘   │
+│                                        │                │
+│                                        ▼                │
+│  ┌────────────────────────┐   ┌─────────────────────┐   │
+│  │                        │   │                     │   │
+│  │  Application           │   │  VdiInstance        │   │
+│  │  Namespace             │   │  Namespace          │   │
+│  │                        │   │                     │   │
+│  │  ┌──────────────────┐  │   │  ┌───────────────┐  │   │
+│  │  │                  │  │   │  │ KubeVirt VMs  │  │   │
+│  │  │ Business         │  │   │  │               │  │   │
+│  │  │ Applications     │  │   │  └───────────────┘  │   │
+│  │  │                  │  │   │         │           │   │
+│  │  └──────────────────┘  │   │         ▼           │   │
+│  │                        │   │  ┌───────────────┐  │   │
+│  └────────────────────────┘   │  │ Sunshine Pods │  │   │
+│                               │  │               │  │   │
+│                               │  └───────────────┘  │   │
+│                               │         │           │   │
+│                               │         ▼           │   │
+│                               │  ┌───────────────┐  │   │
+│                               │  │ Kubernetes    │  │   │
+│                               │  │ Ingress       │  │   │
+│                               │  └───────────────┘  │   │
+│                               │                     │   │
+│                               └─────────────────────┘   │
+│                                        │                │
+└─────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+                                ┌─────────────────┐
+                                │                 │
+                                │ External Users  │
+                                │ with Browser or │
+                                │ Moonlight       │
+                                │                 │
+                                └─────────────────┘
+```
+
+**Direct Service Exposure (Gaming Optimized):**
+
+```ascii
+┌─────────────────────────────────────────────────────────┐
+│ Kubernetes/OpenShift Cluster                            │
+│                                                         │
+│  ┌─────────────────────────┐                            │
+│  │                         │                            │
+│  │  DeskuBe Controller     │                            │
+│  │                         │                            │
+│  └─────────────────────────┘                            │
+│              │                                          │
+│              ▼                                          │
+│  ┌─────────────────────────┐                            │
+│  │                         │                            │
+│  │  Gaming VDI Instance    │                            │
+│  │  Namespace              │                            │
+│  │                         │                            │
+│  │  ┌───────────────────┐  │                            │
+│  │  │ Gaming KubeVirt   │  │                            │
+│  │  │ VM with GPU       │◄─┼────────────┐               │
+│  │  │                   │  │            │               │
+│  │  └───────────────────┘  │            │               │
+│  │            │            │     Low-latency            │
+│  │            ▼            │     connection             │
+│  │  ┌───────────────────┐  │            │               │
+│  │  │ High Performance  │  │            │               │
+│  │  │ Sunshine Server   │  │            │               │
+│  │  │                   │  │            │               │
+│  │  └───────────────────┘  │            │               │
+│  │            │            │            │               │
+│  │            ▼            │            │               │
+│  │  ┌───────────────────┐  │            │               │
+│  │  │ LoadBalancer      │──┼────────────┘               │
+│  │  │ Service           │  │                            │
+│  │  │                   │  │                            │
+│  │  └───────────────────┘  │                            │
+│  │                         │                            │
+│  └─────────────────────────┘                            │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
 ### Key Features
 
 - **KubeVirt VM Integration**: Connect to existing KubeVirt virtual machines
@@ -94,12 +299,15 @@ DeskuBe follows the Kubernetes operator pattern and consists of:
 - docker version 17.03+
 - kubectl version v1.11.3+
 - Access to a Kubernetes v1.11.3+ cluster or OpenShift 4.x+
-- KubeVirt installed on your cluster
+- KubeVirt v0.54.0+ installed on your cluster
 - Operator SDK (for development)
 
 ### Required Components
 
 1. **KubeVirt**: Must be installed on your cluster (see [KubeVirt installation guide](https://kubevirt.io/user-guide/#/installation/installation))
+   - DeskuBe is compatible with KubeVirt v0.54.0 and higher
+   - Requires KubeVirt VM API with `.status.ready` and `.status.printableStatus` fields
+   - VM resources must be pre-created and properly configured before being referenced in a VdiInstance
 2. **Sunshine and Moonlight**: The operator will deploy these components as needed
 
 ## Quick Start
@@ -414,6 +622,28 @@ Get detailed information about a specific VDI instance:
 kubectl describe vdiinstance desktop-instance
 ```
 
+### Kubernetes Conditions
+
+DeskuBe implements standard Kubernetes conditions to provide detailed status information about VDI instances:
+
+```sh
+kubectl get vdiinstance desktop-instance -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.message}{"\n"}{end}'
+```
+
+Example output:
+
+```text
+Ready         True    VDI instance is ready for use
+Available     True    VDI instance is available for connection
+Progressing   False   VDI instance is now ready
+VMReady       True    KubeVirt VM is ready
+StreamingReady True   Streaming components are ready
+NetworkReady  True    Network resources successfully configured
+RBACReady     True    RBAC resources successfully configured
+```
+
+These conditions help you understand the status of different components of your VDI instance and troubleshoot any issues. See [detailed documentation on conditions](docs/conditions.md).
+
 ## Troubleshooting
 
 ### Common Issues
@@ -422,6 +652,30 @@ kubectl describe vdiinstance desktop-instance
 2. **Connection Issues**: Check network policies and firewall rules
 3. **Performance Problems**: Adjust FPS, resolution, and bitrate settings
 4. **Authentication Failures**: Verify user access permissions
+
+### KubeVirt-Specific Troubleshooting
+
+If you encounter issues with KubeVirt VM connectivity:
+
+**VM Status Issues**: Check that the VM is running and in Ready state.
+
+```sh
+kubectl get virtualmachine -n <namespace> <vm-name> -o yaml
+```
+
+**Network Connectivity**: Verify the VM has valid IP addresses assigned.
+
+```sh
+kubectl get virtualmachineinstance -n <namespace> <vm-name> -o jsonpath='{.status.interfaces}'
+```
+
+**VM Ready Check**: This should return `true` for a VM that's ready to accept connections.
+
+```sh
+kubectl get virtualmachine -n <namespace> <vm-name> -o jsonpath='{.status.ready}'
+```
+
+**Enable Debug Logs**: To enable more verbose logging for KubeVirt VM connectivity troubleshooting, set the controller log level to debug when running the operator.
 
 ### Logs
 
@@ -670,6 +924,50 @@ Before submitting a PR, please ensure:
 - **GitHub Discussions**: Ask questions and propose ideas
 - **Issue Tracker**: Report bugs or request features
 - **Slack Channel**: Join our community at #deskube on Kubernetes Slack
+
+## KubeVirt Integration Details
+
+DeskuBe integrates with KubeVirt to provide VDI capabilities on top of virtual machines running in Kubernetes. This section explains the technical details of this integration.
+
+### KubeVirt Version Compatibility
+
+- **Minimum Version**: KubeVirt v0.54.0+
+- **API Dependencies**: DeskuBe relies on the following KubeVirt API features:
+  - VirtualMachine custom resource with `.status.ready` field
+  - `.status.printableStatus` field for VM state detection
+  - Standard VM lifecycle management (start/stop/etc.)
+
+### VM State Handling
+
+DeskuBe monitors the following VM states and takes appropriate actions:
+
+| VM Status | VDI Behavior |
+|-----------|-------------|
+| Ready     | Allows connections, reports as "Running" |
+| Starting  | Waits for VM to become ready, reports as "Pending" |
+| Running (not ready) | Waits for VM to become ready, reports as "Pending" |
+| Stopped   | Reports VDI as "Stopped", no connections allowed |
+| Error     | Reports error in status, attempts recovery |
+
+### VM Connectivity Requirements
+
+For successful connectivity between the Sunshine streaming server and the KubeVirt VM:
+
+1. **Network Configuration**: The VM must be on a network that allows the Sunshine pod to connect to it
+2. **Firewall Settings**: The VM's firewall must allow incoming connections from the Sunshine pod
+3. **Guest Tools**: For optimal performance, install any required guest tools in the VM
+
+### VM Preparation Guidelines
+
+Before creating a VDI instance, prepare your KubeVirt VM as follows:
+
+1. Install and configure the OS with appropriate graphics drivers
+2. Install any necessary tools for remote desktop connections
+3. Configure automatic login if needed
+4. Pre-install any required applications
+5. Create the VM with sufficient resources (CPU, memory, disk)
+
+For more details on VM configuration, refer to the [KubeVirt documentation](https://kubevirt.io/docs/).
 
 ## References
 

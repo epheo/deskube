@@ -43,6 +43,10 @@ func (r *VdiInstanceReconciler) processTemplateBasedInstance(ctx context.Context
 		return nil
 	}
 
+	// Set progressing condition for template processing
+	setCondition(vdi, ConditionProgressing, metav1.ConditionTrue,
+		"ApplyingTemplate", "Applying VDI template to instance")
+
 	logger.Info("Processing template-based VDI instance", "templateRef", vdi.Spec.TemplateRef)
 
 	// Get the template
@@ -59,6 +63,10 @@ func (r *VdiInstanceReconciler) processTemplateBasedInstance(ctx context.Context
 
 	if err := r.Get(ctx, templateName, template); err != nil {
 		logger.Error(err, "Failed to retrieve VdiTemplate", "name", templateName.Name, "namespace", templateName.Namespace)
+		// Set degraded condition
+		setCondition(vdi, ConditionDegraded, metav1.ConditionTrue,
+			"TemplateNotFound", fmt.Sprintf("Failed to retrieve template %s/%s: %v",
+				templateNamespace, vdi.Spec.TemplateRef.Name, err))
 		return fmt.Errorf("failed to retrieve template %s/%s: %w", templateNamespace, vdi.Spec.TemplateRef.Name, err)
 	}
 

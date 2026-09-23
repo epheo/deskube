@@ -1,0 +1,29 @@
+apiVersion: vdi.desku.be/v1alpha1
+kind: VdiInstance
+metadata:
+  name: vdi-example-with-conditions
+  namespace: default
+spec:
+  provisionSource: Direct
+  kubeVirtVMRef:
+    name: ubuntu-desktop
+    namespace: vms
+  sunshineConfig:
+    fps: 60
+    bitrate: 50
+    resolution: "1920x1080"
+  networkConfig:
+    serviceType: ClusterIP
+    exposureMethod: Ingress
+    hostname: "vdi-example.apps.example.com"
+    tls: true
+  userAccess:
+  - type: user
+    name: "admin"
+    permissions:
+    - "connect"
+    - "configure"
+  accessControl:
+    enabled: true
+    createRoles: true
+    rolePrefix: "vdi"
