@@ -4,7 +4,9 @@
     "properties": {
       "exact": true,
       "path": "/desktops/ns/:ns",
-      "component": { "$codeRef": "DesktopsPage" }
+      "component": {
+        "$codeRef": "DesktopsPage"
+      }
     }
   },
   {
@@ -12,7 +14,9 @@
     "properties": {
       "exact": true,
       "path": "/desktops/all-namespaces",
-      "component": { "$codeRef": "DesktopsPage" }
+      "component": {
+        "$codeRef": "DesktopsPage"
+      }
     }
   },
   {
@@ -20,7 +24,9 @@
     "properties": {
       "exact": true,
       "path": "/desktops",
-      "component": { "$codeRef": "DesktopsRedirect" }
+      "component": {
+        "$codeRef": "DesktopsRedirect"
+      }
     }
   },
   {
@@ -31,6 +37,16 @@
       "href": "/desktops",
       "perspective": "admin",
       "section": "virtualization"
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "deskube-desktops-virt-perspective",
+      "name": "Virtual Desktops",
+      "href": "/desktops",
+      "perspective": "virtualization-perspective",
+      "insertAfter": "virtualmachines-virt-perspective"
     }
   }
 ]
