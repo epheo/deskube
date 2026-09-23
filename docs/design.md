@@ -27,6 +27,7 @@ One desktop for one owner.
       preference:   fedora
       owner:        alice                              Kubernetes user, gets RBAC on this object
       running:      true                               power state, idle shutdown flips it
+      idleTimeout:  30m                                optional
       expose:       {type: NodePort | LoadBalancer, basePort: optional}
       stream:       {encoder: software, capture: x11}
       sshAuthorizedKeys: []
@@ -37,6 +38,7 @@ One desktop for one owner.
       basePort:     31989
       adminSecret:  <name>-sunshine-admin
       sessionState: free | busy                        from /serverinfo
+      lastActive:   time                               busy seen, or became Ready
       conditions:   VMReady, StreamingReady, NetworkReady, Ready
 
 The controller owns, per instance:
@@ -74,4 +76,5 @@ LoadBalancer exposure uses base 47989 and one IP per desktop.
 1. VdiInstance rewrite: VM, Service, Secrets, port allocation, readiness from `/serverinfo`.
 2. VdiPairing.
 3. Owner RBAC.
-4. Idle shutdown from `sessionState`, pools, templates.
+4. Idle shutdown from `sessionState`: done, `spec.idleTimeout`.
+5. Pools and templates.

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -194,5 +195,48 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		reconcile("alice")
 		get("alice", vdi)
 		Expect(vdi.Status.Phase).To(Equal(vdiv1alpha1.PhaseStopped))
+		Expect(vdi.Status.LastActive).To(BeNil())
+	})
+
+	It("stops a desktop that sat free for idleTimeout", func() {
+		vdi := &vdiv1alpha1.VdiInstance{}
+		get("alice", vdi)
+		vdi.Spec.Running = ptr.To(true)
+		vdi.Spec.IdleTimeout = &metav1.Duration{Duration: time.Minute}
+		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
+		vm := &kubevirtv1.VirtualMachine{}
+		get("alice", vm)
+		vm.Status.Ready = true
+		vm.Status.PrintableStatus = kubevirtv1.VirtualMachineStatusRunning
+		Expect(k8sClient.Status().Update(ctx, vm)).To(Succeed())
+		probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+
+		reconcile("alice")
+		get("alice", vdi)
+		Expect(vdi.Status.Phase).To(Equal(vdiv1alpha1.PhaseReady))
+		Expect(vdi.Status.LastActive).NotTo(BeNil())
+		Expect(*vdi.Spec.Running).To(BeTrue())
+
+		// A session refreshes the clock even when it started long ago.
+		vdi.Status.LastActive = &metav1.Time{Time: time.Now().Add(-2 * time.Minute)}
+		Expect(k8sClient.Status().Update(ctx, vdi)).To(Succeed())
+		probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_BUSY"}
+		reconcile("alice")
+		get("alice", vdi)
+		Expect(*vdi.Spec.Running).To(BeTrue())
+		Expect(vdi.Status.LastActive.Time).To(BeTemporally("~", time.Now(), 10*time.Second))
+
+		vdi.Status.LastActive = &metav1.Time{Time: time.Now().Add(-2 * time.Minute)}
+		Expect(k8sClient.Status().Update(ctx, vdi)).To(Succeed())
+		probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+		reconcile("alice")
+		get("alice", vdi)
+		Expect(*vdi.Spec.Running).To(BeFalse())
+		Expect(vdi.Status.Phase).To(Equal(vdiv1alpha1.PhaseStopping))
+		Expect(meta.FindStatusCondition(vdi.Status.Conditions, ConditionReady).Reason).To(Equal("IdleShutdown"))
+		// The spec change queues one more reconcile, that one halts the VM.
+		reconcile("alice")
+		get("alice", vm)
+		Expect(*vm.Spec.RunStrategy).To(Equal(kubevirtv1.RunStrategyHalted))
 	})
 })

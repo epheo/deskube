@@ -65,12 +65,15 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 6. Moonlight lists `Desktop`. Connect.
 
 `spec.running: false` stops the VM and keeps the disk.
+`spec.idleTimeout: 30m` stops it after half an hour without a session;
+the operator flips `running` to false, set it back to true to resume.
 
 ## Status
 
-`status.phase` is Provisioning, Starting, Ready, Stopped, or Failed.
+`status.phase` is Provisioning, Starting, Ready, Stopping, Stopped, or Failed.
 Conditions: VMReady, NetworkReady, StreamingReady, Ready.
 `status.sessionState` is `free` or `busy`, read from Sunshine.
+`status.lastActive` is the last time a session was seen.
 
 ## Exposure
 

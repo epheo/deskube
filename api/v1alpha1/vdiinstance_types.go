@@ -94,6 +94,10 @@ type VdiInstanceSpec struct {
 	// +kubebuilder:default=true
 	// +optional
 	Running *bool `json:"running,omitempty"`
+	// IdleTimeout stops the desktop after this long without a session.
+	// The operator sets running to false; set it back to true to resume.
+	// +optional
+	IdleTimeout *metav1.Duration `json:"idleTimeout,omitempty"`
 	// +optional
 	Expose ExposeSpec `json:"expose,omitempty"`
 	// +optional
@@ -111,6 +115,7 @@ const (
 	PhaseProvisioning VdiInstancePhase = "Provisioning"
 	PhaseStarting     VdiInstancePhase = "Starting"
 	PhaseReady        VdiInstancePhase = "Ready"
+	PhaseStopping     VdiInstancePhase = "Stopping"
 	PhaseStopped      VdiInstancePhase = "Stopped"
 	PhaseFailed       VdiInstancePhase = "Failed"
 )
@@ -130,6 +135,9 @@ type VdiInstanceStatus struct {
 	// SessionState is free or busy, from Sunshine serverinfo.
 	// +optional
 	SessionState string `json:"sessionState,omitempty"`
+	// LastActive is when a session was last seen, or when the desktop became Ready.
+	// +optional
+	LastActive *metav1.Time `json:"lastActive,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional

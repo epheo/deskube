@@ -78,6 +78,11 @@ spec:
                     - LoadBalancer
                     type: string
                 type: object
+              idleTimeout:
+                description: |-
+                  IdleTimeout stops the desktop after this long without a session.
+                  The operator sets running to false; set it back to true to resume.
+                type: string
               image:
                 description: ImageSource is the golden image a desktop boots from.
                 properties:
@@ -224,6 +229,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastActive:
+                description: LastActive is when a session was last seen, or when the
+                  desktop became Ready.
+                format: date-time
+                type: string
               observedGeneration:
                 format: int64
                 type: integer

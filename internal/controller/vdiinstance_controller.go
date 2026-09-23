@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1beta1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -442,14 +443,22 @@ func (r *VdiInstanceReconciler) updateStatus(
 
 	ready := vmReady && streaming && host != ""
 	setCondition(vdi, ConditionReady, ready, "Aggregate", "")
+
+	idleLeft, err := r.trackIdle(ctx, vdi, running, ready)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	running = vdi.Spec.Running == nil || *vdi.Spec.Running
 	vdi.Status.Phase = phase(running, ready, vm)
 
 	if err := r.Status().Update(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
 	switch {
-	case !running:
+	case !running && !vmReady:
 		return ctrl.Result{}, nil
+	case ready && idleLeft > 0 && idleLeft < requeueReady:
+		return ctrl.Result{RequeueAfter: idleLeft + time.Second}, nil
 	case ready:
 		return ctrl.Result{RequeueAfter: requeueReady}, nil
 	default:
@@ -457,13 +466,54 @@ func (r *VdiInstanceReconciler) updateStatus(
 	}
 }
 
+// trackIdle keeps lastActive fresh while a session runs and turns the
+// desktop off once it sat free for idleTimeout. It returns how long the
+// desktop may still idle, zero when no timeout applies.
+func (r *VdiInstanceReconciler) trackIdle(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, running, ready bool,
+) (time.Duration, error) {
+	if !running {
+		vdi.Status.LastActive = nil
+		return 0, nil
+	}
+	if !ready {
+		return 0, nil
+	}
+	now := metav1.Now()
+	if vdi.Status.SessionState == "busy" || vdi.Status.LastActive == nil {
+		vdi.Status.LastActive = &now
+	}
+	if vdi.Spec.IdleTimeout == nil || vdi.Status.SessionState != "free" {
+		return 0, nil
+	}
+	left := vdi.Spec.IdleTimeout.Duration - now.Sub(vdi.Status.LastActive.Time)
+	if left > 0 {
+		return left, nil
+	}
+	logf.FromContext(ctx).Info("idle timeout reached, stopping the desktop", "idleTimeout", vdi.Spec.IdleTimeout.Duration)
+	// Update returns the stored status and would wipe the one built here,
+	// so the spec change goes through a copy.
+	stopped := vdi.DeepCopy()
+	stopped.Spec.Running = ptr.To(false)
+	if err := r.Update(ctx, stopped); err != nil {
+		return 0, err
+	}
+	vdi.ResourceVersion = stopped.ResourceVersion
+	vdi.Spec.Running = ptr.To(false)
+	message := "stopped after " + vdi.Spec.IdleTimeout.Duration.String() + " without a session"
+	setCondition(vdi, ConditionReady, false, "IdleShutdown", message)
+	return 0, nil
+}
+
 func phase(running, ready bool, vm *kubevirtv1.VirtualMachine) vdiv1alpha1.VdiInstancePhase {
 	status := string(vm.Status.PrintableStatus)
 	switch {
+	case !running && vm.Status.Ready:
+		return vdiv1alpha1.PhaseStopping
+	case !running:
+		return vdiv1alpha1.PhaseStopped
 	case ready:
 		return vdiv1alpha1.PhaseReady
-	case !running && !vm.Status.Ready:
-		return vdiv1alpha1.PhaseStopped
 	case strings.HasPrefix(status, "Error") || status == string(kubevirtv1.VirtualMachineStatusCrashLoopBackOff):
 		return vdiv1alpha1.PhaseFailed
 	case status == string(kubevirtv1.VirtualMachineStatusProvisioning) ||
