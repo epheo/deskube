@@ -91,8 +91,8 @@ write_files:
     content: |
       [Unit]
       Description=Sunshine streaming host
-      After=xfce.service
-      Wants=xfce.service
+      After=xfce.service pipewire-pulse.service wireplumber.service
+      Wants=xfce.service pipewire-pulse.service wireplumber.service
       [Service]
       Environment=DISPLAY=:0
       ExecStartPre=/bin/sh -c 'until [ -S /tmp/.X11-unix/X0 ]; do sleep 1; done'
@@ -101,6 +101,24 @@ write_files:
       RestartSec=3
       [Install]
       WantedBy=default.target
+  # Sunshine loads a null sink and sets it default in one go, which races
+  # PipeWire and fails. A sink that already exists at boot is found by name.
+  - path: /home/desk/.config/pipewire/pipewire.conf.d/10-sunshine-sink.conf
+    owner: desk:desk
+    defer: true
+    content: |
+      context.objects = [
+        { factory = adapter
+          args = {
+            factory.name     = support.null-audio-sink
+            node.name        = "sink-sunshine-stereo"
+            node.description = "Sunshine"
+            media.class      = Audio/Sink
+            object.linger    = true
+            audio.position   = [ FL FR ]
+          }
+        }
+      ]
   # port 31989 keeps every derived port inside the NodePort range,
   # so the Service can map node ports 1:1 and Moonlight derives the rest.
   - path: /home/desk/.config/sunshine/sunshine.conf
