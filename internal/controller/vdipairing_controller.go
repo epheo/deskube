@@ -49,8 +49,11 @@ type VdiPairingReconciler struct {
 	Scheme        *runtime.Scheme
 	ProbeExternal bool
 	// NewClient builds the admin API client; tests inject a fake.
-	NewClient func(host string, basePort int32, username, password string) PairingClient
+	NewClient NewPairingClient
 }
+
+// NewPairingClient builds the admin API client for one desktop.
+type NewPairingClient func(host string, basePort int32, username, password string) PairingClient
 
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdipairings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdipairings/status,verbs=get;update;patch
@@ -71,7 +74,8 @@ func (r *VdiPairingReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	vdi := &vdiv1alpha1.VdiInstance{}
-	if err := r.Get(ctx, types.NamespacedName{Name: pairing.Spec.InstanceRef, Namespace: pairing.Namespace}, vdi); err != nil {
+	key := types.NamespacedName{Name: pairing.Spec.InstanceRef, Namespace: pairing.Namespace}
+	if err := r.Get(ctx, key, vdi); err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
@@ -86,7 +90,8 @@ func (r *VdiPairingReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return r.wait(ctx, pairing, err.Error())
 	}
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, types.NamespacedName{Name: vdi.Status.AdminSecret, Namespace: vdi.Namespace}, secret); err != nil {
+	secretKey := types.NamespacedName{Name: vdi.Status.AdminSecret, Namespace: vdi.Namespace}
+	if err := r.Get(ctx, secretKey, secret); err != nil {
 		return ctrl.Result{}, err
 	}
 	newClient := r.NewClient
@@ -139,7 +144,9 @@ func (r *VdiPairingReconciler) adminHost(ctx context.Context, vdi *vdiv1alpha1.V
 	return host, nil
 }
 
-func (r *VdiPairingReconciler) wait(ctx context.Context, pairing *vdiv1alpha1.VdiPairing, message string) (ctrl.Result, error) {
+func (r *VdiPairingReconciler) wait(
+	ctx context.Context, pairing *vdiv1alpha1.VdiPairing, message string,
+) (ctrl.Result, error) {
 	pairing.Status.Phase = vdiv1alpha1.PairingPending
 	pairing.Status.Message = message
 	if err := r.Status().Update(ctx, pairing); err != nil {
@@ -148,7 +155,9 @@ func (r *VdiPairingReconciler) wait(ctx context.Context, pairing *vdiv1alpha1.Vd
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
-func (r *VdiPairingReconciler) finish(ctx context.Context, pairing *vdiv1alpha1.VdiPairing, phase vdiv1alpha1.VdiPairingPhase, message string) (ctrl.Result, error) {
+func (r *VdiPairingReconciler) finish(
+	ctx context.Context, pairing *vdiv1alpha1.VdiPairing, phase vdiv1alpha1.VdiPairingPhase, message string,
+) (ctrl.Result, error) {
 	pairing.Status.Phase = phase
 	pairing.Status.Message = message
 	if phase == vdiv1alpha1.PairingPaired {

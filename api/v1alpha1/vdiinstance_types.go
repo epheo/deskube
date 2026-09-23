@@ -42,6 +42,7 @@ type ImageSource struct {
 // +kubebuilder:validation:Enum=NodePort;LoadBalancer
 type ExposeType string
 
+// Exposure types.
 const (
 	ExposeNodePort     ExposeType = "NodePort"
 	ExposeLoadBalancer ExposeType = "LoadBalancer"
@@ -105,6 +106,7 @@ type VdiInstanceSpec struct {
 // VdiInstancePhase is a one word summary of the status conditions.
 type VdiInstancePhase string
 
+// Phases, from creation to a desktop a client can dial.
 const (
 	PhaseProvisioning VdiInstancePhase = "Provisioning"
 	PhaseStarting     VdiInstancePhase = "Starting"

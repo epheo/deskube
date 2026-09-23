@@ -47,6 +47,7 @@ import (
 	"github.com/deskube/deskube/internal/sunshine"
 )
 
+// Condition types on a VdiInstance. Ready aggregates the other three.
 const (
 	ConditionVMReady        = "VMReady"
 	ConditionNetworkReady   = "NetworkReady"
@@ -187,7 +188,9 @@ func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv
 	return string(secret.Data["password"]), nil
 }
 
-func (r *VdiInstanceReconciler) ensureCloudInitSecret(ctx context.Context, vdi *vdiv1alpha1.VdiInstance, password string) error {
+func (r *VdiInstanceReconciler) ensureCloudInitSecret(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, password string,
+) error {
 	userData, err := guest.CloudInit(guest.Params{
 		Name:              vdi.Name,
 		BasePort:          vdi.Status.BasePort,
@@ -208,7 +211,9 @@ func (r *VdiInstanceReconciler) ensureCloudInitSecret(ctx context.Context, vdi *
 	return err
 }
 
-func (r *VdiInstanceReconciler) ensureVM(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (*kubevirtv1.VirtualMachine, error) {
+func (r *VdiInstanceReconciler) ensureVM(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+) (*kubevirtv1.VirtualMachine, error) {
 	vm := &kubevirtv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, vm, func() error {
 		strategy := kubevirtv1.RunStrategyAlways
@@ -228,7 +233,9 @@ func (r *VdiInstanceReconciler) ensureVM(ctx context.Context, vdi *vdiv1alpha1.V
 	return vm, err
 }
 
-func desiredVMSpec(vdi *vdiv1alpha1.VdiInstance, strategy kubevirtv1.VirtualMachineRunStrategy) kubevirtv1.VirtualMachineSpec {
+func desiredVMSpec(
+	vdi *vdiv1alpha1.VdiInstance, strategy kubevirtv1.VirtualMachineRunStrategy,
+) kubevirtv1.VirtualMachineSpec {
 	instanceType := vdi.Spec.InstanceType
 	if instanceType == "" {
 		instanceType = "u1.xlarge"
@@ -274,30 +281,47 @@ func desiredVMSpec(vdi *vdiv1alpha1.VdiInstance, strategy kubevirtv1.VirtualMach
 			Spec: kubevirtv1.VirtualMachineInstanceSpec{
 				Domain: kubevirtv1.DomainSpec{
 					Devices: kubevirtv1.Devices{
-						Disks: []kubevirtv1.Disk{
-							{Name: "rootdisk", DiskDevice: kubevirtv1.DiskDevice{Disk: &kubevirtv1.DiskTarget{Bus: kubevirtv1.DiskBusVirtio}}},
-							{Name: "cloudinitdisk", DiskDevice: kubevirtv1.DiskDevice{Disk: &kubevirtv1.DiskTarget{Bus: kubevirtv1.DiskBusVirtio}}},
-						},
+						Disks: []kubevirtv1.Disk{virtioDisk("rootdisk"), virtioDisk("cloudinitdisk")},
 						// Masquerade with no port list forwards every port, UDP included.
 						Interfaces: []kubevirtv1.Interface{{
-							Name:                   "default",
-							InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{Masquerade: &kubevirtv1.InterfaceMasquerade{}},
+							Name: "default",
+							InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
+								Masquerade: &kubevirtv1.InterfaceMasquerade{},
+							},
 						}},
 					},
 				},
-				Networks: []kubevirtv1.Network{{Name: "default", NetworkSource: kubevirtv1.NetworkSource{Pod: &kubevirtv1.PodNetwork{}}}},
+				Networks: []kubevirtv1.Network{{
+					Name:          "default",
+					NetworkSource: kubevirtv1.NetworkSource{Pod: &kubevirtv1.PodNetwork{}},
+				}},
 				Volumes: []kubevirtv1.Volume{
-					{Name: "rootdisk", VolumeSource: kubevirtv1.VolumeSource{DataVolume: &kubevirtv1.DataVolumeSource{Name: rootDV}}},
-					{Name: "cloudinitdisk", VolumeSource: kubevirtv1.VolumeSource{CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-						UserDataSecretRef: &corev1.LocalObjectReference{Name: cloudInitSecretName(vdi)},
-					}}},
+					{
+						Name:         "rootdisk",
+						VolumeSource: kubevirtv1.VolumeSource{DataVolume: &kubevirtv1.DataVolumeSource{Name: rootDV}},
+					},
+					{
+						Name: "cloudinitdisk",
+						VolumeSource: kubevirtv1.VolumeSource{CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+							UserDataSecretRef: &corev1.LocalObjectReference{Name: cloudInitSecretName(vdi)},
+						}},
+					},
 				},
 			},
 		},
 	}
 }
 
-func (r *VdiInstanceReconciler) ensureService(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (*corev1.Service, error) {
+func virtioDisk(name string) kubevirtv1.Disk {
+	return kubevirtv1.Disk{
+		Name:       name,
+		DiskDevice: kubevirtv1.DiskDevice{Disk: &kubevirtv1.DiskTarget{Bus: kubevirtv1.DiskBusVirtio}},
+	}
+}
+
+func (r *VdiInstanceReconciler) ensureService(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+) (*corev1.Service, error) {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
 		svc.Labels = map[string]string{labelInstance: vdi.Name}
@@ -349,10 +373,20 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vdi.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		group := vdiv1alpha1.GroupVersion.Group
 		role.Rules = []rbacv1.PolicyRule{
-			{APIGroups: []string{vdiv1alpha1.GroupVersion.Group}, Resources: []string{"vdiinstances"}, ResourceNames: []string{vdi.Name}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{vdiv1alpha1.GroupVersion.Group}, Resources: []string{"vdipairings"}, Verbs: []string{"get", "list", "watch", "create", "delete"}},
-			{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{adminSecretName(vdi)}, Verbs: []string{"get"}},
+			{
+				APIGroups: []string{group}, Resources: []string{"vdiinstances"},
+				ResourceNames: []string{vdi.Name}, Verbs: verbsRead,
+			},
+			{
+				APIGroups: []string{group}, Resources: []string{"vdipairings"},
+				Verbs: append(append([]string{}, verbsRead...), "create", "delete"),
+			},
+			{
+				APIGroups: []string{""}, Resources: []string{"secrets"},
+				ResourceNames: []string{adminSecretName(vdi)}, Verbs: verbsRead[:1],
+			},
 		}
 		return controllerutil.SetControllerReference(vdi, role, r.Scheme)
 	}); err != nil {
@@ -367,7 +401,11 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 	return err
 }
 
-func (r *VdiInstanceReconciler) updateStatus(ctx context.Context, vdi *vdiv1alpha1.VdiInstance, vm *kubevirtv1.VirtualMachine, svc *corev1.Service) (ctrl.Result, error) {
+var verbsRead = []string{"get", "list", "watch"}
+
+func (r *VdiInstanceReconciler) updateStatus(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, vm *kubevirtv1.VirtualMachine, svc *corev1.Service,
+) (ctrl.Result, error) {
 	running := vdi.Spec.Running == nil || *vdi.Spec.Running
 	vdi.Status.AdminSecret = adminSecretName(vdi)
 	vdi.Status.ObservedGeneration = vdi.Generation
@@ -438,7 +476,9 @@ func phase(running, ready bool, vm *kubevirtv1.VirtualMachine) vdiv1alpha1.VdiIn
 }
 
 // clientHost is the address a Moonlight client dials.
-func (r *VdiInstanceReconciler) clientHost(ctx context.Context, vdi *vdiv1alpha1.VdiInstance, svc *corev1.Service) (string, error) {
+func (r *VdiInstanceReconciler) clientHost(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, svc *corev1.Service,
+) (string, error) {
 	if vdi.Spec.Expose.Host != "" {
 		return vdi.Spec.Expose.Host, nil
 	}
@@ -495,7 +535,9 @@ func nodeAddress(node *corev1.Node) string {
 }
 
 // fail records the error on a condition and asks for a retry.
-func (r *VdiInstanceReconciler) fail(ctx context.Context, vdi *vdiv1alpha1.VdiInstance, condition, reason string, cause error) (ctrl.Result, error) {
+func (r *VdiInstanceReconciler) fail(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, condition, reason string, cause error,
+) (ctrl.Result, error) {
 	setCondition(vdi, condition, false, reason, cause.Error())
 	setCondition(vdi, ConditionReady, false, reason, "")
 	vdi.Status.Phase = vdiv1alpha1.PhaseFailed

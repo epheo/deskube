@@ -44,6 +44,11 @@ const (
 	OffsetRTSP    int32 = 21
 )
 
+const (
+	protoTCP = "TCP"
+	protoUDP = "UDP"
+)
+
 // Port is one of the seven ports a desktop needs.
 type Port struct {
 	Name     string
@@ -53,13 +58,13 @@ type Port struct {
 
 // Ports lists every port in the order Moonlight uses them.
 var Ports = []Port{
-	{"https", OffsetHTTPS, "TCP"},
-	{"http", OffsetHTTP, "TCP"},
-	{"web", OffsetWeb, "TCP"},
-	{"video", OffsetVideo, "UDP"},
-	{"control", OffsetControl, "UDP"},
-	{"audio", OffsetAudio, "UDP"},
-	{"rtsp", OffsetRTSP, "TCP"},
+	{"https", OffsetHTTPS, protoTCP},
+	{"http", OffsetHTTP, protoTCP},
+	{"web", OffsetWeb, protoTCP},
+	{"video", OffsetVideo, protoUDP},
+	{"control", OffsetControl, protoUDP},
+	{"audio", OffsetAudio, protoUDP},
+	{"rtsp", OffsetRTSP, protoTCP},
 }
 
 // ServerInfo is the subset of /serverinfo the operator acts on.
@@ -96,7 +101,7 @@ func GetServerInfo(ctx context.Context, host string, basePort int32) (*ServerInf
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
 		return nil, err
@@ -158,7 +163,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return err

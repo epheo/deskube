@@ -22,3 +22,18 @@ linters:
     - unconvert
     - unparam
     - unused
+  exclusions:
+    rules:
+      # Ginkgo specs read better with dot imports and literal fixtures.
+      - path: _test\.go
+        linters: [lll, goconst, dupl]
+      - path: _test\.go
+        linters: [revive]
+        text: dot-imports
+      # controller-gen reads RBAC markers whole, they cannot wrap.
+      - linters: [lll]
+        source: '^// \+kubebuilder:rbac'
+      # kubebuilder scaffold; the replacement needs an API package rewrite.
+      - path: api/v1alpha1/groupversion_info\.go
+        linters: [staticcheck]
+        text: SA1019

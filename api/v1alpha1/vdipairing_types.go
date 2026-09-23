@@ -36,6 +36,7 @@ type VdiPairingSpec struct {
 // VdiPairingPhase is the outcome of the pairing attempt.
 type VdiPairingPhase string
 
+// Pairing phases; Pending retries, the other two are final.
 const (
 	PairingPending VdiPairingPhase = "Pending"
 	PairingPaired  VdiPairingPhase = "Paired"

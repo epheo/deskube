@@ -70,7 +70,8 @@ write_files:
       log_path = /home/desk/.config/sunshine/sunshine.log
 runcmd:
   - chown -R desk:desk /home/desk/.config
-  - sudo -u desk /usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf --creds {{ q .AdminUser }} {{ q .AdminPassword }}
+  - sudo -u desk /usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf
+    --creds {{ q .AdminUser }} {{ q .AdminPassword }}
   - systemctl --user -M desk@ daemon-reload
   - systemctl --user -M desk@ restart sunshine.service
   - touch /var/lib/cloud/deskube-provisioned
