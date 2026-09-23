@@ -97,6 +97,17 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !vdi.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
+	result, err := r.reconcile(ctx, vdi)
+	if isTransient(err) {
+		// The cache lags one write behind; the next pass sees it.
+		log.V(1).Info("retrying after a stale read", "cause", err.Error())
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	return result, err
+}
+
+func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 
 	if vdi.Status.BasePort == 0 {
 		base, err := r.chooseBasePort(ctx, vdi)
@@ -597,6 +608,11 @@ func (r *VdiInstanceReconciler) fail(
 	return ctrl.Result{}, cause
 }
 
+// isTransient covers the two errors a stale informer cache produces.
+func isTransient(err error) bool {
+	return apierrors.IsConflict(err) || apierrors.IsAlreadyExists(err)
+}
+
 func setCondition(vdi *vdiv1alpha1.VdiInstance, conditionType string, ok bool, reason, message string) {
 	status := metav1.ConditionFalse
 	if ok {
@@ -645,6 +661,8 @@ func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&kubevirtv1.VirtualMachine{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
 		Named("vdiinstance").
 		Complete(r)
 }

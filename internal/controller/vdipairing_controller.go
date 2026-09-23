@@ -66,6 +66,16 @@ func (r *VdiPairingReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err := r.Get(ctx, req.NamespacedName, pairing); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	result, err := r.reconcile(ctx, pairing)
+	if isTransient(err) {
+		log.V(1).Info("retrying after a stale read", "cause", err.Error())
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	return result, err
+}
+
+func (r *VdiPairingReconciler) reconcile(ctx context.Context, pairing *vdiv1alpha1.VdiPairing) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	if pairing.Status.Phase == vdiv1alpha1.PairingPaired || pairing.Status.Phase == vdiv1alpha1.PairingFailed {
 		return ctrl.Result{}, nil
 	}
