@@ -23,8 +23,9 @@ RTSP handshake, control, video, and audio streams, first video packet
 after 100 ms. Sunshine encodes 1080p capture to 720p30 with libx264 at
 about 15 ms per frame on 4 vCPU, no GPU.
 
+Audio needs the null sink declared in pipewire.conf.d, see the template.
+
 Known gaps:
-- No audio. Sunshine cannot set its null sink as default on PipeWire.
 - The guest Sunshine port must equal the external port. RTSP advertises
   the UDP ports, so a Service cannot remap them.
 - The node firewall drops NodePorts, so the direct path is untested.

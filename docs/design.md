@@ -6,6 +6,7 @@
 - Sunshine on base port 31989 keeps every derived port inside the NodePort range.
 - Pairing needs no human in the guest: `GET /api/pin` lists pending requests, `POST /api/pin` approves one.
 - A thin LVM snapshot clones a golden image in seconds; a cloud-init install takes five minutes.
+- Audio works once the Sunshine null sink is declared in PipeWire config instead of loaded at stream start.
 
 See `hack/stream-proof` and `hack/golden`.
 

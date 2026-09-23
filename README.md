@@ -33,6 +33,14 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
        make install
        make run   # or: go run ./cmd/main.go --probe-external
 
+   Or in the cluster:
+
+       make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:dev
+       make deploy IMG=<registry>/deskube:dev
+
+   The manager probes desktops through their ClusterIP in the cluster,
+   and through the client address with `--probe-external` outside it.
+
 3. Create a desktop:
 
        apiVersion: vdi.desku.be/v1alpha1
@@ -93,7 +101,6 @@ Design notes: `docs/design.md`.
 
 ## Known gaps
 
-- No audio yet. Sunshine cannot select its null sink on PipeWire.
 - Software encoding only was tested. VAAPI and NVENC need a GPU.
 - A VdiPairing with the right PIN approves whatever client is waiting.
 
