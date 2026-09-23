@@ -386,10 +386,13 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vdi.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
 		group := vdiv1alpha1.GroupVersion.Group
+		// list and watch ignore resourceNames, so the owner sees every
+		// desktop name in the namespace and can only change their own.
 		role.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{group}, Resources: []string{"vdiinstances"}, Verbs: verbsRead},
 			{
 				APIGroups: []string{group}, Resources: []string{"vdiinstances"},
-				ResourceNames: []string{vdi.Name}, Verbs: verbsRead,
+				ResourceNames: []string{vdi.Name}, Verbs: []string{"update", "patch"},
 			},
 			{
 				APIGroups: []string{group}, Resources: []string{"vdipairings"},

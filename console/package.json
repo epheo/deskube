@@ -1,0 +1,43 @@
+{
+  "name": "deskube-console-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "webpack --mode=production",
+    "dev": "webpack serve --mode=development",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@openshift-console/dynamic-plugin-sdk": "~4.22.0",
+    "@openshift-console/dynamic-plugin-sdk-webpack": "~4.22.0",
+    "@patternfly/react-core": "^6.3.0",
+    "@patternfly/react-icons": "^6.3.0",
+    "@patternfly/react-table": "^6.3.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "css-loader": "^7.1.0",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.7.0",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.0",
+    "webpack-dev-server": "^5.2.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "consolePlugin": {
+    "name": "deskube-console-plugin",
+    "version": "0.1.0",
+    "displayName": "DeskuBe Virtual Desktops",
+    "description": "Virtual desktops streamed with Sunshine and Moonlight",
+    "exposedModules": {
+      "DesktopsPage": "./src/components/DesktopsPage",
+      "DesktopsRedirect": "./src/components/DesktopsRedirect"
+    },
+    "dependencies": {
+      "@console/pluginAPI": "*"
+    }
+  }
+}

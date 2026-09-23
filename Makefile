@@ -322,3 +322,26 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+##@ Console plugin
+
+CONSOLE_IMG ?= registry.desku.be/deskube/console-plugin:dev
+
+.PHONY: console-build
+console-build: ## Build the console plugin image.
+	$(CONTAINER_TOOL) build -t $(CONSOLE_IMG) -f console/Containerfile console
+
+.PHONY: console-push
+console-push: ## Push the console plugin image.
+	$(CONTAINER_TOOL) push $(CONSOLE_IMG)
+
+.PHONY: console-deploy
+console-deploy: kustomize ## Deploy the plugin and enable it in the console operator.
+	$(KUSTOMIZE) build console/deploy | $(KUBECTL) apply -f -
+	$(KUBECTL) get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' | grep -q deskube-console-plugin || \
+	  $(KUBECTL) patch consoles.operator.openshift.io cluster --type=json \
+	    -p '[{"op":"add","path":"/spec/plugins/-","value":"deskube-console-plugin"}]'
+
+.PHONY: console-undeploy
+console-undeploy: kustomize ## Remove the plugin.
+	$(KUSTOMIZE) build console/deploy | $(KUBECTL) delete --ignore-not-found=true -f -

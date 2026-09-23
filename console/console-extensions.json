@@ -1,0 +1,36 @@
+[
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/desktops/ns/:ns",
+      "component": { "$codeRef": "DesktopsPage" }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/desktops/all-namespaces",
+      "component": { "$codeRef": "DesktopsPage" }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/desktops",
+      "component": { "$codeRef": "DesktopsRedirect" }
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "deskube-desktops",
+      "name": "Virtual Desktops",
+      "href": "/desktops",
+      "perspective": "admin",
+      "section": "virtualization"
+    }
+  }
+]

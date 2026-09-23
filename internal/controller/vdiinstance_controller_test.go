@@ -124,7 +124,9 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 
 		role := &rbacv1.Role{}
 		get("alice-owner", role)
-		Expect(role.Rules[0].ResourceNames).To(ConsistOf("alice"))
+		Expect(role.Rules[0].ResourceNames).To(BeEmpty())
+		Expect(role.Rules[1].ResourceNames).To(ConsistOf("alice"))
+		Expect(role.Rules[1].Verbs).To(ConsistOf("update", "patch"))
 		binding := &rbacv1.RoleBinding{}
 		get("alice-owner", binding)
 		Expect(binding.Subjects[0].Name).To(Equal("alice"))
