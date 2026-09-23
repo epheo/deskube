@@ -1,0 +1,139 @@
+#cloud-config
+hostname: desk-proof
+users:
+  - name: desk
+    groups: [wheel, input]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_PUBKEY__
+packages:
+  - xorg-x11-server-Xorg
+  - xorg-x11-drv-dummy
+  - xorg-x11-drv-libinput
+  - xfce4-session
+  - xfce4-panel
+  - xfwm4
+  - xfdesktop
+  - xfce4-terminal
+  - xterm
+  - dbus-x11
+  - pipewire
+  - pipewire-pulseaudio
+  - wireplumber
+write_files:
+  - path: /etc/X11/xorg-dummy.conf
+    content: |
+      Section "ServerFlags"
+        Option "AutoAddGPU" "false"
+      EndSection
+      Section "Device"
+        Identifier "dummy"
+        Driver "dummy"
+        VideoRam 256000
+      EndSection
+      Section "Monitor"
+        Identifier "monitor"
+        HorizSync 28.0-80.0
+        VertRefresh 48.0-75.0
+        Modeline "1920x1080" 172.80 1920 2040 2248 2576 1080 1081 1084 1118 -hsync +vsync
+      EndSection
+      Section "Screen"
+        Identifier "screen"
+        Device "dummy"
+        Monitor "monitor"
+        DefaultDepth 24
+        SubSection "Display"
+          Depth 24
+          Modes "1920x1080"
+          Virtual 1920 1080
+        EndSubSection
+      EndSection
+      Section "ServerLayout"
+        Identifier "layout"
+        Screen "screen"
+      EndSection
+  - path: /etc/systemd/system/xorg-dummy.service
+    content: |
+      [Unit]
+      Description=Headless Xorg on the dummy driver
+      After=systemd-udevd.service
+      [Service]
+      ExecStart=/usr/bin/Xorg :0 -config /etc/X11/xorg-dummy.conf -noreset -ac -nolisten tcp vt7
+      Restart=always
+      [Install]
+      WantedBy=multi-user.target
+  # The package rule uses uaccess, which only covers a seated login.
+  # A lingering user has no seat, so grant the input group directly.
+  - path: /etc/udev/rules.d/70-deskube-uinput.rules
+    content: |
+      KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+  - path: /etc/modules-load.d/uinput.conf
+    content: uinput
+  - path: /home/desk/.config/systemd/user/xfce.service
+    owner: desk:desk
+    defer: true
+    content: |
+      [Unit]
+      Description=XFCE session on display :0
+      [Service]
+      Environment=DISPLAY=:0
+      ExecStartPre=/bin/sh -c 'until [ -S /tmp/.X11-unix/X0 ]; do sleep 1; done'
+      ExecStart=/usr/bin/xfce4-session
+      Restart=always
+      RestartSec=3
+      [Install]
+      WantedBy=default.target
+  - path: /home/desk/.config/systemd/user/sunshine.service
+    owner: desk:desk
+    defer: true
+    content: |
+      [Unit]
+      Description=Sunshine streaming host
+      After=xfce.service
+      Wants=xfce.service
+      [Service]
+      Environment=DISPLAY=:0
+      ExecStartPre=/bin/sh -c 'until [ -S /tmp/.X11-unix/X0 ]; do sleep 1; done'
+      ExecStart=/usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf
+      Restart=on-failure
+      RestartSec=3
+      [Install]
+      WantedBy=default.target
+  # port 31989 keeps every derived port inside the NodePort range,
+  # so the Service can map node ports 1:1 and Moonlight derives the rest.
+  - path: /home/desk/.config/sunshine/sunshine.conf
+    owner: desk:desk
+    defer: true
+    content: |
+      sunshine_name = desk-proof
+      port = 31989
+      address_family = ipv4
+      origin_web_ui_allowed = wan
+      capture = x11
+      encoder = software
+      sw_preset = superfast
+      sw_tune = zerolatency
+      min_log_level = info
+      file_state = /home/desk/.config/sunshine/sunshine_state.json
+      credentials_file = /home/desk/.config/sunshine/sunshine_state.json
+      log_path = /home/desk/.config/sunshine/sunshine.log
+runcmd:
+  - dnf install -y https://github.com/LizardByte/Sunshine/releases/download/v__SUNSHINE_VERSION__/Sunshine-__SUNSHINE_VERSION__-1.fc44.x86_64.rpm
+  - modprobe uinput
+  - udevadm control --reload
+  - udevadm trigger --subsystem-match=misc
+  - chown -R desk:desk /home/desk/.config
+  - sudo -u desk /usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf --creds admin '__SUNSHINE_PASS__'
+  - systemctl daemon-reload
+  - systemctl enable --now xorg-dummy.service
+  - mkdir -p /home/desk/.config/systemd/user/default.target.wants
+  - ln -sf ../xfce.service /home/desk/.config/systemd/user/default.target.wants/xfce.service
+  - ln -sf ../sunshine.service /home/desk/.config/systemd/user/default.target.wants/sunshine.service
+  - chown -R desk:desk /home/desk/.config
+  - loginctl enable-linger desk
+  # An early SSH login can start the user manager before the symlinks exist.
+  - systemctl --user -M desk@ daemon-reload
+  - systemctl --user -M desk@ start xfce.service sunshine.service
+  - touch /var/lib/cloud/deskube-provisioned
