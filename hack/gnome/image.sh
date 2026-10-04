@@ -24,7 +24,8 @@ ConditionPathExists=!/var/lib/deskube-switched
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'bootc switch $REF || rpm-ostree rebase ostree-unverified-registry:$REF'
+# A multi gigabyte pull over a flaky link deserves a few attempts.
+ExecStart=/bin/sh -c 'for i in 1 2 3 4 5; do bootc switch $REF && exit 0; sleep 30; done; exit 1'
 # Nothing instance specific may ship in the image: the CoreOS admin user,
 # the builder's hostname and machine id, and the SSH host keys.
 ExecStart=/usr/sbin/userdel -r core
