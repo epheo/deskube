@@ -23,6 +23,11 @@ import (
 	"text/template"
 )
 
+// prepCmd follows the client resolution and never fails the session:
+// a non zero prep command makes Sunshine abort the launch.
+const prepCmd = `[{"do":"sh -c \"/usr/local/bin/deskube-resize || true\"",` +
+	`"undo":"sh -c \"/usr/local/bin/deskube-resize reset || true\""}]`
+
 // Params is everything that differs between two desktops from one image.
 type Params struct {
 	Name              string
@@ -32,6 +37,8 @@ type Params struct {
 	SSHAuthorizedKeys []string
 	Encoder           string
 	Capture           string
+	// PrepCmd is filled in by CloudInit.
+	PrepCmd string
 }
 
 // The image already carries Xorg, XFCE, Sunshine, the user units, and
@@ -65,7 +72,7 @@ write_files:
       encoder = {{ .Encoder }}
       sw_preset = superfast
       sw_tune = zerolatency
-      global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\"","undo":"sh -c \"/usr/local/bin/deskube-resize reset || true\""}]
+      global_prep_cmd = {{ .PrepCmd }}
       min_log_level = info
       file_state = /home/desk/.config/sunshine/sunshine_state.json
       credentials_file = /home/desk/.config/sunshine/sunshine_state.json
@@ -90,6 +97,7 @@ func CloudInit(p Params) (string, error) {
 	if p.Capture == "" {
 		p.Capture = "x11"
 	}
+	p.PrepCmd = prepCmd
 	var buf bytes.Buffer
 	if err := cloudInit.Execute(&buf, p); err != nil {
 		return "", err
