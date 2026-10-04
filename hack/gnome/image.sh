@@ -24,7 +24,8 @@ ConditionPathExists=!/var/lib/deskube-switched
 
 [Service]
 Type=oneshot
-# A multi gigabyte pull over a flaky link deserves a few attempts.
+# One run failed its first pull with a registry GET error that was not
+# understood; a retry succeeded. Cheap to retry, worth watching.
 ExecStart=/bin/sh -c 'for i in 1 2 3 4 5; do bootc switch $REF && exit 0; sleep 30; done; exit 1'
 # Nothing instance specific may ship in the image: the CoreOS admin user,
 # the builder's hostname and machine id, and the SSH host keys.

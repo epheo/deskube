@@ -40,16 +40,19 @@ def main():
     if expect(["login:"], 30) is None:
         send("\n")
         if expect(["login:"], 30) is None:
-            print("no login prompt", file=sys.stderr); sys.exit(1)
+            print("no login prompt; last output:\n" + buf.decode(errors="replace")[-600:], file=sys.stderr); sys.exit(1)
     send(user + "\n")
     if expect(["Password:"], 15) is None:
         print("no password prompt", file=sys.stderr); sys.exit(1)
     send(password + "\n")
     if expect(["$ ", "# "], 20) is None:
-        print("login failed", file=sys.stderr); sys.exit(1)
+        print("login failed; last output:\n" + buf.decode(errors="replace")[-600:], file=sys.stderr); sys.exit(1)
     buf = b""
-    send(cmd + "; echo " + marker + "\n")
-    expect([marker + "\r\n", marker + "\n"], 120)
+    # The typed line echoes back, so the marker is split in what we type
+    # and only appears whole once the command ran.
+    send(cmd + "; echo " + marker[:6] + '""' + marker[6:] + "\n")
+    if expect([marker + "\r\n", marker + "\n"], 90) is None:
+        print("command did not finish; partial output follows", file=sys.stderr)
     # drop the echoed command line and the marker
     out = buf.decode(errors="replace")
     out = out.split("\n", 1)[1] if "\n" in out else out
