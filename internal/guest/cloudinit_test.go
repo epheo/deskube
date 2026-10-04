@@ -43,7 +43,7 @@ func TestCloudInitRenders(t *testing.T) {
 	for _, want := range []string{
 		"port = 30016",
 		"sunshine_name = alice-desk",
-		"capture = x11",
+		"encoder = software",
 		`global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\""`,
 		"encoder = software",
 		"--creds 'admin' 'p''w'",
@@ -53,6 +53,20 @@ func TestCloudInitRenders(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestCloudInitCaptureOptional(t *testing.T) {
+	out, err := CloudInit(Params{Name: "x", BasePort: 1, AdminPassword: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "capture =") {
+		t.Errorf("empty capture should leave detection to Sunshine:\n%s", out)
+	}
+	out, _ = CloudInit(Params{Name: "x", BasePort: 1, AdminPassword: "p", Capture: "kms"})
+	if !strings.Contains(out, "capture = kms") {
+		t.Errorf("explicit capture missing:\n%s", out)
 	}
 }
 

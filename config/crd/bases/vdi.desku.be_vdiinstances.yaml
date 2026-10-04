@@ -137,7 +137,9 @@ spec:
                   the guest.
                 properties:
                   capture:
-                    default: x11
+                    description: |-
+                      Capture is left to Sunshine's own detection when empty: kms on a
+                      Wayland image, x11 on the Xorg image.
                     enum:
                     - x11
                     - kms

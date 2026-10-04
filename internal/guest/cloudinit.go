@@ -68,7 +68,9 @@ write_files:
       port = {{ .BasePort }}
       address_family = ipv4
       origin_web_ui_allowed = wan
+{{- if .Capture }}
       capture = {{ .Capture }}
+{{- end }}
       encoder = {{ .Encoder }}
       sw_preset = superfast
       sw_tune = zerolatency
@@ -97,9 +99,6 @@ func CloudInit(p Params) (string, error) {
 	}
 	if p.Encoder == "" {
 		p.Encoder = "software"
-	}
-	if p.Capture == "" {
-		p.Capture = "x11"
 	}
 	p.PrepCmd = prepCmd
 	var buf bytes.Buffer

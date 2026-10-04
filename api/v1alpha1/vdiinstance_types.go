@@ -70,8 +70,9 @@ type StreamSpec struct {
 	// +kubebuilder:default=software
 	// +optional
 	Encoder string `json:"encoder,omitempty"`
+	// Capture is left to Sunshine's own detection when empty: kms on a
+	// Wayland image, x11 on the Xorg image.
 	// +kubebuilder:validation:Enum=x11;kms;wlr;kwin
-	// +kubebuilder:default=x11
 	// +optional
 	Capture string `json:"capture,omitempty"`
 }
