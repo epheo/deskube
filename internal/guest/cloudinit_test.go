@@ -44,6 +44,7 @@ func TestCloudInitRenders(t *testing.T) {
 		"port = 30016",
 		"sunshine_name = alice-desk",
 		"capture = x11",
+		`global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\""`,
 		"encoder = software",
 		"--creds 'admin' 'p''w'",
 		"- 'ssh-ed25519 AAAA test'",

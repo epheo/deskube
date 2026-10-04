@@ -34,7 +34,8 @@ type Params struct {
 	Capture           string
 }
 
-// The image already carries Xorg, XFCE, Sunshine, and the user units.
+// The image already carries Xorg, XFCE, Sunshine, the user units, and
+// deskube-resize, which follows the client resolution at stream start.
 // Only identity, port, and credentials are set here, then Sunshine restarts.
 var cloudInit = template.Must(template.New("cloud-init").Funcs(template.FuncMap{"q": yamlQuote}).Parse(
 	`#cloud-config
@@ -64,6 +65,7 @@ write_files:
       encoder = {{ .Encoder }}
       sw_preset = superfast
       sw_tune = zerolatency
+      global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\"","undo":"sh -c \"/usr/local/bin/deskube-resize reset || true\""}]
       min_log_level = info
       file_state = /home/desk/.config/sunshine/sunshine_state.json
       credentials_file = /home/desk/.config/sunshine/sunshine_state.json

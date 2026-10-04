@@ -22,7 +22,11 @@ packages:
   - pipewire
   - pipewire-pulseaudio
   - wireplumber
+  - xrandr
+  - cvt
 write_files:
+  # Sync ranges and Virtual are wide on purpose: deskube-resize adds any
+  # mode a client asks for at runtime, up to 4K.
   - path: /etc/X11/xorg-dummy.conf
     content: |
       Section "ServerFlags"
@@ -35,9 +39,15 @@ write_files:
       EndSection
       Section "Monitor"
         Identifier "monitor"
-        HorizSync 28.0-80.0
-        VertRefresh 48.0-75.0
-        Modeline "1920x1080" 172.80 1920 2040 2248 2576 1080 1081 1084 1118 -hsync +vsync
+        HorizSync 5.0-300.0
+        VertRefresh 5.0-120.0
+        Modeline "1280x720"  63.75 1280 1328 1360 1440 720 723 728 741 +hsync -vsync
+        Modeline "1366x768"  72.00 1366 1414 1446 1526 768 771 776 790 +hsync -vsync
+        Modeline "1600x900"  97.75 1600 1648 1680 1760 900 903 908 926 +hsync -vsync
+        Modeline "1920x1080" 138.50 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync
+        Modeline "1920x1200" 154.00 1920 1968 2000 2080 1200 1203 1209 1235 +hsync -vsync
+        Modeline "2560x1440" 241.50 2560 2608 2640 2720 1440 1443 1448 1481 +hsync -vsync
+        Modeline "2560x1600" 268.50 2560 2608 2640 2720 1600 1603 1609 1646 +hsync -vsync
       EndSection
       Section "Screen"
         Identifier "screen"
@@ -46,14 +56,51 @@ write_files:
         DefaultDepth 24
         SubSection "Display"
           Depth 24
-          Modes "1920x1080"
-          Virtual 1920 1080
+          Modes "1920x1080" "2560x1440" "1920x1200" "1600x900" "1366x768" "1280x720"
+          Virtual 3840 2160
         EndSubSection
       EndSection
       Section "ServerLayout"
         Identifier "layout"
         Screen "screen"
       EndSection
+  - path: /usr/local/bin/deskube-resize
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Switches the dummy display to the size the Moonlight client asked for.
+      # Sunshine runs it as a prep command with SUNSHINE_CLIENT_WIDTH and
+      # SUNSHINE_CLIENT_HEIGHT set. "reset" restores the default afterwards.
+      # Always exits 0: a failed prep command would abort the whole session.
+      OUT=${DESKUBE_OUTPUT:-DUMMY0}
+      DEFAULT=${DESKUBE_DEFAULT_MODE:-1920x1080}
+      export DISPLAY=${DISPLAY:-:0}
+
+      if [ "$1" = reset ]; then
+        xrandr --output "$OUT" --mode "$DEFAULT"
+        exit 0
+      fi
+      W=${1:-$SUNSHINE_CLIENT_WIDTH}
+      H=${2:-$SUNSHINE_CLIENT_HEIGHT}
+      case "$W" in ''|*[!0-9]*) echo "deskube-resize: no width"; exit 0;; esac
+      case "$H" in ''|*[!0-9]*) echo "deskube-resize: no height"; exit 0;; esac
+      MODE="${W}x${H}"
+
+      if ! xrandr | grep -q "^ *$MODE "; then
+        # Reduced blanking keeps the pixel clock low; 4K at 60 still exceeds
+        # what the dummy driver takes, so fall back to 30 Hz.
+        for RATE in 60 30; do
+          LINE=$(cvt -r "$W" "$H" "$RATE" | sed -n 's/^Modeline "[^"]*" *//p')
+          [ -n "$LINE" ] || continue
+          xrandr --delmode "$OUT" "$MODE" 2>/dev/null
+          xrandr --rmmode "$MODE" 2>/dev/null
+          # shellcheck disable=SC2086
+          xrandr --newmode "$MODE" $LINE 2>/dev/null || continue
+          xrandr --addmode "$OUT" "$MODE" 2>/dev/null && break
+        done
+      fi
+      xrandr --output "$OUT" --mode "$MODE" && echo "deskube-resize: $MODE" || echo "deskube-resize: cannot set $MODE"
+      exit 0
   - path: /etc/systemd/system/xorg-dummy.service
     content: |
       [Unit]
@@ -133,6 +180,7 @@ write_files:
       encoder = software
       sw_preset = superfast
       sw_tune = zerolatency
+      global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\"","undo":"sh -c \"/usr/local/bin/deskube-resize reset || true\""}]
       min_log_level = info
       file_state = /home/desk/.config/sunshine/sunshine_state.json
       credentials_file = /home/desk/.config/sunshine/sunshine_state.json
