@@ -44,7 +44,7 @@ func TestCloudInitRenders(t *testing.T) {
 		"port = 30016",
 		"sunshine_name = alice-desk",
 		"encoder = software",
-		`global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\""`,
+		`global_prep_cmd = [{"do":"sh -c \"deskube-resize || true\""`,
 		"encoder = software",
 		"--creds 'admin' 'p''w'",
 		"runuser -u desk",
