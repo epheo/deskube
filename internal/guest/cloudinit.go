@@ -84,7 +84,8 @@ runcmd:
   # left unset; Sunshine has no layered config of its own.
   - |
     conf=/home/desk/.config/sunshine/sunshine.conf
-    [ -f /etc/deskube/sunshine.defaults ] && grep -E '^[a-z_]+ *=' /etc/deskube/sunshine.defaults | while read -r key rest; do
+    defaults=/etc/deskube/sunshine.defaults
+    [ -f "$defaults" ] && grep -E '^[a-z_]+ *=' "$defaults" | while read -r key rest; do
       grep -q "^$key *=" "$conf" || echo "$key $rest" >> "$conf"
     done
     true
