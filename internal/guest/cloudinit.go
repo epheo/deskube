@@ -23,10 +23,12 @@ import (
 	"text/template"
 )
 
-// prepCmd follows the client resolution and never fails the session:
-// a non zero prep command makes Sunshine abort the launch.
-const prepCmd = `[{"do":"sh -c \"/usr/local/bin/deskube-resize || true\"",` +
-	`"undo":"sh -c \"/usr/local/bin/deskube-resize reset || true\""}]`
+// prepCmd follows the client resolution and never fails the session.
+// Resolved through PATH: the Xorg image keeps it in /usr/local/bin, the
+// bootc image in /usr/bin.
+// A non zero prep command makes Sunshine abort the launch.
+const prepCmd = `[{"do":"sh -c \"deskube-resize || true\"",` +
+	`"undo":"sh -c \"deskube-resize reset || true\""}]`
 
 // Params is everything that differs between two desktops from one image.
 type Params struct {

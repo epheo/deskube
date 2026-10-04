@@ -185,7 +185,7 @@ write_files:
       encoder = software
       sw_preset = superfast
       sw_tune = zerolatency
-      global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\"","undo":"sh -c \"/usr/local/bin/deskube-resize reset || true\""}]
+      global_prep_cmd = [{"do":"sh -c \"deskube-resize || true\"","undo":"sh -c \"deskube-resize reset || true\""}]
       min_log_level = info
       file_state = /home/desk/.config/sunshine/sunshine_state.json
       credentials_file = /home/desk/.config/sunshine/sunshine_state.json
