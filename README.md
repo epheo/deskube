@@ -72,6 +72,10 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 6. Moonlight lists `Desktop`. Connect.
 
+The desktop follows the resolution Moonlight asks for. A Sunshine prep
+command runs `deskube-resize` in the guest, which adds the mode to the
+dummy display with cvt and xrandr, and resets to 1920x1080 afterwards.
+
 `spec.running: false` stops the VM and keeps the disk.
 `spec.idleTimeout: 30m` stops it after half an hour without a session;
 the operator flips `running` to false, set it back to true to resume.

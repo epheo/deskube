@@ -7,6 +7,7 @@
 - Pairing needs no human in the guest: `GET /api/pin` lists pending requests, `POST /api/pin` approves one.
 - A thin LVM snapshot clones a golden image in seconds; a cloud-init install takes five minutes.
 - Audio works once the Sunshine null sink is declared in PipeWire config instead of loaded at stream start.
+- The dummy display takes new modes at runtime, so a prep command can match the client resolution.
 
 See `hack/stream-proof` and `hack/golden`.
 
