@@ -25,6 +25,10 @@ ConditionPathExists=!/var/lib/deskube-switched
 [Service]
 Type=oneshot
 ExecStart=/bin/sh -c 'bootc switch $REF || rpm-ostree rebase ostree-unverified-registry:$REF'
+# Nothing instance specific may ship in the image: the CoreOS admin user,
+# the builder's hostname and machine id, and the SSH host keys.
+ExecStart=/usr/sbin/userdel -r core
+ExecStart=/bin/sh -c 'rm -f /etc/hostname /etc/ssh/ssh_host_*; truncate -s 0 /etc/machine-id'
 ExecStart=/usr/bin/touch /var/lib/deskube-switched
 ExecStart=/usr/bin/systemctl poweroff
 
