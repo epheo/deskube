@@ -41,6 +41,7 @@ write_files:
         Identifier "monitor"
         HorizSync 5.0-300.0
         VertRefresh 5.0-120.0
+        Option "ReducedBlanking" "true"
         Modeline "1280x720"  63.75 1280 1328 1360 1440 720 723 728 741 +hsync -vsync
         Modeline "1366x768"  72.00 1366 1414 1446 1526 768 771 776 790 +hsync -vsync
         Modeline "1600x900"  97.75 1600 1648 1680 1760 900 903 908 926 +hsync -vsync
