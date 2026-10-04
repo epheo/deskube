@@ -134,5 +134,5 @@ spec:
       namespace: $NS
 DV
 oc -n "$NS" wait "datavolume/$NAME" --for=condition=Ready --timeout=300s
-oc -n "$NS" delete vm "$BUILDER" secret "$BUILDER-ignition"
+oc -n "$NS" delete "vm/$BUILDER" "secret/$BUILDER-ignition" --ignore-not-found
 echo "datasource $NAME ready from $REF"
