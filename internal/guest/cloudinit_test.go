@@ -47,6 +47,7 @@ func TestCloudInitRenders(t *testing.T) {
 		`global_prep_cmd = [{"do":"sh -c \"/usr/local/bin/deskube-resize || true\""`,
 		"encoder = software",
 		"--creds 'admin' 'p''w'",
+		"runuser -u desk",
 		"- 'ssh-ed25519 AAAA test'",
 	} {
 		if !strings.Contains(out, want) {

@@ -25,5 +25,7 @@ write_files:
 runcmd:
   - chown -R desk:desk /home/desk/.config
   - sudo -u desk /usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf --creds admin '__SUNSHINE_PASS__'
-  - systemctl --user -M desk@ restart sunshine.service || true
+  # systemctl --user -M fails from cloud-init on bootc; runuser with the
+  # user's runtime dir reaches the same user manager everywhere.
+  - runuser -u desk -- env XDG_RUNTIME_DIR=/run/user/$(id -u desk) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u desk)/bus systemctl --user restart sunshine.service
   - touch /var/lib/cloud/deskube-provisioned

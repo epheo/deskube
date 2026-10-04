@@ -81,8 +81,12 @@ runcmd:
   - chown -R desk:desk /home/desk/.config
   - sudo -u desk /usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf
     --creds {{ q .AdminUser }} {{ q .AdminPassword }}
-  - systemctl --user -M desk@ daemon-reload
-  - systemctl --user -M desk@ restart sunshine.service
+  # systemctl --user -M fails from cloud-init on bootc; runuser with the
+  # user's runtime dir reaches the same user manager everywhere.
+  - runuser -u desk -- env XDG_RUNTIME_DIR=/run/user/$(id -u desk) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u desk)/bus
+    systemctl --user daemon-reload
+  - runuser -u desk -- env XDG_RUNTIME_DIR=/run/user/$(id -u desk) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u desk)/bus
+    systemctl --user restart sunshine.service
   - touch /var/lib/cloud/deskube-provisioned
 `))
 
