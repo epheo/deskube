@@ -48,6 +48,7 @@ func TestCloudInitRenders(t *testing.T) {
 		"encoder = software",
 		"--creds 'admin' 'p''w'",
 		"runuser -u desk",
+		"/etc/deskube/sunshine.defaults",
 		"- 'ssh-ed25519 AAAA test'",
 	} {
 		if !strings.Contains(out, want) {

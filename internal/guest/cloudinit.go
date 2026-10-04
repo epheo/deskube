@@ -80,6 +80,14 @@ write_files:
       credentials_file = /home/desk/.config/sunshine/sunshine_state.json
       log_path = /home/desk/.config/sunshine/sunshine.log
 runcmd:
+  # The image may ship defaults (capture, encoder) for keys the instance
+  # left unset; Sunshine has no layered config of its own.
+  - |
+    conf=/home/desk/.config/sunshine/sunshine.conf
+    [ -f /etc/deskube/sunshine.defaults ] && grep -E '^[a-z_]+ *=' /etc/deskube/sunshine.defaults | while read -r key rest; do
+      grep -q "^$key *=" "$conf" || echo "$key $rest" >> "$conf"
+    done
+    true
   - chown -R desk:desk /home/desk/.config
   - sudo -u desk /usr/bin/sunshine /home/desk/.config/sunshine/sunshine.conf
     --creds {{ q .AdminUser }} {{ q .AdminPassword }}
