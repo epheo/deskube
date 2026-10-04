@@ -25,9 +25,12 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 ## Quick start
 
-1. Build a golden image once. `hack/stream-proof` provisions a Fedora
-   VM with Xorg dummy, XFCE, and Sunshine; `hack/golden` snapshots it
-   into a DataSource.
+1. Build a golden image once. `images/desktop-gnome` is a bootc image,
+   GNOME on Wayland with Sunshine, built and pushed like any container.
+   `hack/gnome/image.sh` turns it into a DataSource without a privileged
+   build: a Fedora CoreOS builder VM switches to the image and its disk
+   is snapshotted. (`hack/stream-proof` and `hack/golden` are the older
+   Xorg and XFCE path.)
 2. Install and run the operator:
 
        make install
@@ -72,9 +75,11 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 6. Moonlight lists `Desktop`. Connect.
 
-The desktop follows the resolution Moonlight asks for. A Sunshine prep
-command runs `deskube-resize` in the guest, which adds the mode to the
-dummy display with cvt and xrandr, and resets to 1920x1080 afterwards.
+The desktop follows the resolution Moonlight is configured for, applied
+when the app launches. A Sunshine prep command runs `deskube-resize` in
+the guest: on GNOME it picks the closest mode the virtual GPU offers
+through gdctl, on the Xorg image it adds the exact mode with xrandr.
+Both reset to 1920x1080 when the session ends.
 
 `spec.running: false` stops the VM and keeps the disk.
 `spec.idleTimeout: 30m` stops it after half an hour without a session;

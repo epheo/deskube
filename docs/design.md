@@ -73,10 +73,30 @@ base-5, base, base+1, base+9, base+10, base+11, base+21.
 Bases start at 30016 and step by 32, so 86 desktops fit one cluster.
 LoadBalancer exposure uses base 47989 and one IP per desktop.
 
+## Images
+
+A desktop image is a bootc container (`images/desktop-gnome`). The
+operator never builds it. It prepares it for KubeVirt:
+
+    kind: VdiImage
+    spec:
+      ref:  registry.desku.be/deskube/desktop-gnome:rawhide
+      base: {dataSource: fcos-base}     # any bootc capable disk
+    status:
+      dataSource: desktop-gnome-rawhide
+      digest: sha256:...
+
+A builder VM boots the base, runs `bootc switch <ref>`, strips builder
+state, powers off; the disk is snapshotted into the DataSource. Running
+desktops update themselves with bootc's timer and keep `/var`. New
+desktops clone the latest prepared disk. `hack/gnome/image.sh` is this
+loop by hand.
+
 ## Order of work
 
 1. VdiInstance rewrite: VM, Service, Secrets, port allocation, readiness from `/serverinfo`.
 2. VdiPairing.
 3. Owner RBAC.
 4. Idle shutdown from `sessionState`: done, `spec.idleTimeout`.
-5. Pools and templates.
+5. VdiImage controller around the builder VM loop.
+6. Pools and templates.
