@@ -5,6 +5,16 @@ users:
     ssh_authorized_keys:
       - __SSH_PUBKEY__
 write_files:
+  # Sunshine's stock list adds "Low Res Desktop" and "Steam Big Picture",
+  # whose prep commands (xrandr on HDMI-1, steam) abort the launch.
+  - path: /home/desk/.config/sunshine/apps.json
+    owner: desk:desk
+    defer: true
+    content: |
+      {
+        "env": {"PATH": "$(PATH):$(HOME)/.local/bin"},
+        "apps": [{"name": "Desktop", "image-path": "desktop.png"}]
+      }
   - path: /home/desk/.config/sunshine/sunshine.conf
     owner: desk:desk
     defer: true
@@ -13,6 +23,7 @@ write_files:
       port = __PORT__
       address_family = ipv4
       origin_web_ui_allowed = wan
+      file_apps = /home/desk/.config/sunshine/apps.json
       capture = kms
       encoder = software
       sw_preset = superfast

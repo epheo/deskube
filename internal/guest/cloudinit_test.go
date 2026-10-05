@@ -48,6 +48,8 @@ func TestCloudInitRenders(t *testing.T) {
 		"encoder = software",
 		"--creds 'admin' 'p''w'",
 		"runuser -u desk",
+		"file_apps = /home/desk/.config/sunshine/apps.json",
+		`"apps": [{"name": "Desktop"`,
 		"/etc/deskube/sunshine.defaults",
 		"- 'ssh-ed25519 AAAA test'",
 	} {
