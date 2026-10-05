@@ -101,9 +101,22 @@ LoadBalancer exposure uses base 47989 and one IP per desktop.
    1920x1080 delivered through a NodePort, three sessions in a row.
 2. GPU in the pod: a device plugin or DRA handing out the render node,
    with a fixed number of desktops per GPU.
-3. Gaming profile: unmasked /proc with a pod user namespace, the GPU's
-   primary node visible, and a node agent for gamepads so that a desktop
-   never holds the real uinput.
+3. Gaming profile, without gamepads for now. Steam's sandbox needs
+   nested user namespaces and a fresh /proc. Proven by hand on
+   OpenShift 4.22 on 2026-10-05 with a pod that has:
+
+       hostUsers: false
+       securityContext: {runAsUser: 1000}
+       containers[].securityContext:
+         procMount: Unmasked
+         allowPrivilegeEscalation: true    # what selects the SCC below
+
+   and a service account bound to the stock `nested-container` SCC.
+   That SCC sets SELinux type container_engine_t and applies no
+   seccomp filter. Under container_t the /proc mount is denied; under
+   the runtime's default seccomp filter the nested namespace is. Not
+   privileged, no capability. Left to do: the operator creating that
+   service account and pod shape, and the GPU from item 2.
 4. Limits the kubelet does not know: GPU memory through the dmem cgroup
    controller, a frame cap per desktop.
 5. Pools and templates.
