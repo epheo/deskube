@@ -85,5 +85,5 @@ sleep 3
 oc -n "$NS" get vdiinstance "$NAME"
 echo "logs in $WORK"
 # The first packet proves little; count what arrived. A still desktop sends few frames.
-GOT=$(sed -n 's/^Video frames received: .* s, \([0-9]*\)\..* fps.*/\1/p' "$WORK/stream.log" | head -1)
+GOT=$(sed -n 's/.*Video frames received: .* s, \([0-9]*\)\..* fps.*/\1/p' "$WORK/stream.log" | head -1)
 if [ "${GOT:-0}" -ge "${MIN_FPS:-5}" ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL, ${GOT:-no} fps received"; exit 1; fi
