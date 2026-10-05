@@ -1,48 +1,50 @@
 # DeskuBe
 
-Virtual desktops on KubeVirt, streamed with Sunshine and Moonlight.
-No GPU needed, no agent in the client beyond Moonlight itself.
+Virtual desktops as pods, streamed with Sunshine and Moonlight.
+No agent on the client beyond Moonlight itself.
 
-DeskuBe is an operator for OpenShift Virtualization and KubeVirt.
-It boots a desktop VM from a golden image, exposes the seven Sunshine
-ports, and approves Moonlight pairing on the owner's behalf.
+DeskuBe is a Kubernetes operator. A desktop is a container: a Wayland
+session and Sunshine, on the node's GPU when it has one and on the CPU
+when it has none. The operator gives it a home volume, exposes the
+seven Sunshine ports, and approves Moonlight pairing on the owner's
+behalf.
 
 ## How it works
 
-    VdiInstance ──> VirtualMachine (snapshot clone of the golden image)
+    VdiInstance ──> Deployment (one desktop pod, or none when stopped)
+                ──> PersistentVolumeClaim (the home)
                 ──> Service (7 ports, NodePort or LoadBalancer)
-                ──> Secrets (Sunshine admin password, cloud-init)
+                ──> Secret (Sunshine admin password)
                 ──> Role + RoleBinding for the owner
 
     VdiPairing  ──> POST /api/pin on the desktop's Sunshine web UI
 
-Sunshine runs inside the guest on a base port the operator allocates.
+Sunshine runs in the pod on a base port the operator allocates.
 Every other port is derived from it, and RTSP tells Moonlight the UDP
-ports, so the guest and the Service use the same numbers.
+ports, so the pod and the Service use the same numbers.
 
 Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 31998 video, 31999 control, 32000 audio, 32010 rtsp.
 
 ## Quick start
 
-1. Build a golden image once. `images/desktop-gnome` is a bootc image,
-   GNOME on Wayland with Sunshine, built and pushed like any container.
-   `hack/gnome/image.sh` turns it into a DataSource without a privileged
-   build: a Fedora CoreOS builder VM switches to the image and its disk
-   is snapshotted. (`hack/stream-proof` and `hack/golden` are the older
-   Xorg and XFCE path.)
-2. Install and run the operator:
+1. Build and push the images:
+
+       make desktop-build desktop-push CONTAINER_TOOL=podman
+       make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:dev
+
+   `images/desktop-pod` is the desktop: sway, Sunshine, and the input
+   shim on the newest Fedora release. `images/desktop-pod-steam` adds
+   Steam and gamescope. `hack/pod` runs both with podman, no cluster.
+
+2. Install the operator:
 
        make install
-       make run   # or: go run ./cmd/main.go --probe-external
-
-   Or in the cluster:
-
-       make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:dev
        make deploy IMG=<registry>/deskube:dev
 
-   The manager probes desktops through their ClusterIP in the cluster,
-   and through the client address with `--probe-external` outside it.
+   `make run`, or `go run ./cmd/main.go --probe-external`, runs it
+   outside the cluster; it then probes desktops through the client
+   address instead of the ClusterIP.
 
 3. Create a desktop:
 
@@ -51,10 +53,11 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
        metadata:
          name: alice-desk
        spec:
-         image:
-           dataSource:
-             name: deskube-fedora-xfce
+         image: registry.desku.be/deskube/desktop:dev
          owner: alice
+         resources:
+           requests: {cpu: "2", memory: 4Gi}
+           limits: {memory: 4Gi}
 
 4. Wait for `Ready` and read the address:
 
@@ -75,22 +78,27 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 6. Moonlight lists `Desktop`. Connect.
 
-The desktop follows the resolution Moonlight is configured for, applied
-when the app launches. A Sunshine prep command runs `deskube-resize` in
-the guest: on GNOME it picks the closest mode the virtual GPU offers
-through gdctl, on the Xorg image it adds the exact mode with xrandr.
-Both reset to 1920x1080 when the session ends.
+The desktop takes the resolution and refresh rate Moonlight asks for,
+applied when the app launches, and returns to 1920x1080 at 60 Hz when
+the session ends.
 
-`spec.running: false` stops the VM and keeps the disk.
-`spec.idleTimeout: 30m` stops it after half an hour without a session;
+`spec.running: false` removes the pod and keeps the home.
+`spec.idleTimeout: 30m` does that after half an hour without a session;
 the operator flips `running` to false, set it back to true to resume.
+
+## Limits per desktop
+
+- CPU and memory: `spec.resources`, enforced by the kubelet. Request
+  CPU rather than cap it: a throttled desktop stutters.
+- GPU memory and GPU time have no limit in Kubernetes. A frame cap and
+  a resolution cap per desktop are what bound them.
 
 ## Console plugin
 
 `console/` is an OpenShift console dynamic plugin. It adds a
-**Virtual Desktops** page under Virtualization: list, create, start,
-stop, delete, and pair Moonlight through a VdiPairing. Owners see
-their namespace; admins see all.
+**Virtual Desktops** page: list, create, start, stop, delete, and pair
+Moonlight through a VdiPairing. Owners see their namespace; admins see
+all.
 
     make console-build console-push CONTAINER_TOOL=podman CONSOLE_IMG=<registry>/console-plugin:dev
     make console-deploy CONSOLE_IMG=<registry>/console-plugin:dev
@@ -101,7 +109,8 @@ console operator. The console pods restart once, then the item appears.
 ## Status
 
 `status.phase` is Provisioning, Starting, Ready, Stopping, Stopped, or Failed.
-Conditions: VMReady, NetworkReady, StreamingReady, Ready.
+Conditions: PodReady, NetworkReady, StreamingReady, Ready. PodReady
+carries the kubelet's reason when a desktop does not start.
 `status.sessionState` is `free` or `busy`, read from Sunshine.
 `status.lastActive` is the last time a session was seen.
 
@@ -114,16 +123,20 @@ Conditions: VMReady, NetworkReady, StreamingReady, Ready.
 
 ## Development
 
-    make test        # envtest with stand-in KubeVirt CRDs
+    make test                  # envtest
     make lint
-    hack/stream-proof/e2e.sh   # headless Moonlight against one VM
+    hack/pod/e2e.sh            # headless Moonlight against a podman desktop
     hack/e2e-operator.sh       # VdiInstance + VdiPairing on a cluster
 
-Design notes: `docs/design.md`.
+Design notes: `docs/design.md`. By hand results: `hack/pod/README.md`.
 
 ## Known gaps
 
-- Software encoding only was tested. VAAPI and NVENC need a GPU.
+- The operator does not hand a GPU to the pod yet; cluster desktops
+  render and encode on the CPU. With podman the GPU path works.
+- The gaming image needs privileges the operator does not grant yet.
+- The pod's volume is group owned through OpenShift's fsGroup; plain
+  Kubernetes needs one set.
 - A VdiPairing with the right PIN approves whatever client is waiting.
 
 ## License

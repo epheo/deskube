@@ -1,21 +1,38 @@
-# DeskuBe design, restart of 2026-09-23
+# DeskuBe design
+
+Restarted 2026-09-23 on KubeVirt VMs, moved to pods only on 2026-10-05.
+
+## Why pods
+
+- A pod shares the node's GPU through its render node. No vGPU exists
+  for most integrated GPUs; a VM would get none, or the whole card.
+- Hardware encoding costs 2 to 3 ms per frame. The VM encoded on the
+  CPU in about 15 ms.
+- A desktop starts in seconds from an image pull, with no disk clone.
+- What a VM would still do better: Windows guests, and a hard wall
+  between tenants. Neither is a goal now.
 
 ## What was proven
 
-- A KubeVirt VM with Xorg dummy, XFCE, and Sunshine streams to Moonlight with no GPU.
-- Sunshine on base port 31989 keeps every derived port inside the NodePort range.
-- Pairing needs no human in the guest: `GET /api/pin` lists pending requests, `POST /api/pin` approves one.
-- A thin LVM snapshot clones a golden image in seconds; a cloud-init install takes five minutes.
-- Audio works once the Sunshine null sink is declared in PipeWire config instead of loaded at stream start.
-- The dummy display takes new modes at runtime, so a prep command can match the client resolution.
+- sway on the wlroots headless backend, Sunshine capturing it, in an
+  unprivileged container. `hack/pod/README.md` has the numbers.
+- With a GPU: wlr capture and VAAPI, 120 fps at 2560x1440 delivered.
+- Without one: the compositor draws on the CPU, capture goes through
+  the screen cast portal, libx264 encodes, 60 fps at 1920x1080.
+- Input without kernel devices: a preload library answers Sunshine's
+  uinput calls and replays them into the compositor.
+- Pairing needs no human at the desktop: `GET /api/pin` lists pending
+  requests, `POST /api/pin` approves one.
+- Sunshine on a base port inside the NodePort range keeps every derived
+  port in it. RTSP advertises the UDP ports, so a Service cannot remap
+  them: the pod port must equal the external port.
 
-See `hack/stream-proof` and `hack/golden`.
+## Rules for images
 
-## Why the old design could not work
-
-- Routes carry HTTP only. Moonlight video, audio, and control are UDP.
-- RTSP advertises the guest's UDP ports, so a Service cannot remap them. The guest port must equal the external port.
-- Pairing was never handled, so nobody could ever connect.
+- The newest Fedora release, not a pinned one.
+- Wayland sessions only. No Xorg server, no X11 capture.
+- Xwayland only in the gaming image: Steam and Proton games are X11.
+- Runs as any UID in group 0, as OpenShift assigns one.
 
 ## Resources
 
@@ -24,47 +41,51 @@ See `hack/stream-proof` and `hack/golden`.
 One desktop for one owner.
 
     spec:
-      image:        {dataSource: {name, namespace}}   golden image
-      instanceType: u1.xlarge                          KubeVirt cluster instancetype
-      preference:   fedora
-      owner:        alice                              Kubernetes user, gets RBAC on this object
-      running:      true                               power state, idle shutdown flips it
-      idleTimeout:  30m                                optional
-      expose:       {type: NodePort | LoadBalancer, basePort: optional}
-      stream:       {encoder: software, capture: x11}
-      sshAuthorizedKeys: []
+      image:       registry/desktop:tag
+      resources:   {requests, limits}            CPU and memory of the pod
+      home:        {size: 20Gi, storageClassName}
+      owner:       alice                         Kubernetes user, gets RBAC on this object
+      running:     true                          power state, idle shutdown flips it
+      idleTimeout: 30m                           optional
+      expose:      {type: NodePort | LoadBalancer, basePort, host}
+      stream:      {encoder: software | vaapi, keyboardLayout}
 
     status:
-      phase:        Provisioning | Starting | Ready | Stopped | Failed
-      address:      203.0.113.10:31989                  what to type in Moonlight
+      phase:        Provisioning | Starting | Ready | Stopping | Stopped | Failed
+      address:      203.0.113.10:31989            what to type in Moonlight
       basePort:     31989
       adminSecret:  <name>-sunshine-admin
-      sessionState: free | busy                        from /serverinfo
-      lastActive:   time                               busy seen, or became Ready
-      conditions:   VMReady, StreamingReady, NetworkReady, Ready
+      sessionState: free | busy                  from /serverinfo
+      lastActive:   time                         busy seen, or became Ready
+      conditions:   PodReady, StreamingReady, NetworkReady, Ready
 
 The controller owns, per instance:
 
 - a Secret with the Sunshine admin password,
-- a Secret with the rendered cloud-init,
-- a VirtualMachine cloned from the golden image,
+- a PersistentVolumeClaim for the home, kept while the desktop is stopped,
+- a Deployment with one replica, zero when stopped, strategy Recreate
+  because the home and the ports belong to one pod at a time,
 - a Service with the seven ports,
 - a Role and RoleBinding for the owner.
 
+The pod gets no service account token, drops every capability, and
+runs under the default seccomp profile. Its readiness probe is
+Sunshine's `/serverinfo`.
+
 ### VdiPairing
 
-The PIN Moonlight shows, handed to the operator instead of the guest.
+The PIN Moonlight shows, handed to the operator instead of the desktop.
 
     spec:
       instanceRef: alice-desk
       pin: "4693"
       clientName: laptop
     status:
-      phase: Pending | Paired | Failed | Expired
+      phase: Pending | Paired | Failed
 
 The controller reads the admin Secret, lists pending pairings on the
 instance's web port through the ClusterIP, and approves the one that
-matches. A portal can wrap this later; kubectl works today.
+matches.
 
 ## Port allocation
 
@@ -73,30 +94,15 @@ base-5, base, base+1, base+9, base+10, base+11, base+21.
 Bases start at 30016 and step by 32, so 86 desktops fit one cluster.
 LoadBalancer exposure uses base 47989 and one IP per desktop.
 
-## Images
-
-A desktop image is a bootc container (`images/desktop-gnome`). The
-operator never builds it. It prepares it for KubeVirt:
-
-    kind: VdiImage
-    spec:
-      ref:  registry.desku.be/deskube/desktop-gnome:rawhide
-      base: {dataSource: fcos-base}     # any bootc capable disk
-    status:
-      dataSource: desktop-gnome-rawhide
-      digest: sha256:...
-
-A builder VM boots the base, runs `bootc switch <ref>`, strips builder
-state, powers off; the disk is snapshotted into the DataSource. Running
-desktops update themselves with bootc's timer and keep `/var`. New
-desktops clone the latest prepared disk. `hack/gnome/image.sh` is this
-loop by hand.
-
 ## Order of work
 
-1. VdiInstance rewrite: VM, Service, Secrets, port allocation, readiness from `/serverinfo`.
-2. VdiPairing.
-3. Owner RBAC.
-4. Idle shutdown from `sessionState`: done, `spec.idleTimeout`.
-5. VdiImage controller around the builder VM loop.
-6. Pools and templates.
+1. VdiInstance as a pod, pairing, owner RBAC, idle shutdown: written
+   and tested with envtest; not run on a cluster yet.
+2. GPU in the pod: a device plugin or DRA handing out the render node,
+   with a fixed number of desktops per GPU.
+3. Gaming profile: unmasked /proc with a pod user namespace, the GPU's
+   primary node visible, and a node agent for gamepads so that a desktop
+   never holds the real uinput.
+4. Limits the kubelet does not know: GPU memory through the dmem cgroup
+   controller, a frame cap per desktop.
+5. Pools and templates.

@@ -78,83 +78,134 @@ spec:
                     - LoadBalancer
                     type: string
                 type: object
+              home:
+                description: |-
+                  HomeSpec is the volume that keeps the desktop user's files, pairings
+                  included, across restarts.
+                properties:
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 20Gi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    description: StorageClassName is the cluster default when empty.
+                    type: string
+                type: object
               idleTimeout:
                 description: |-
                   IdleTimeout stops the desktop after this long without a session.
                   The operator sets running to false; set it back to true to resume.
                 type: string
               image:
-                description: ImageSource is the golden image a desktop boots from.
-                properties:
-                  dataSource:
-                    description: DataSourceRef names a CDI DataSource holding a prepared
-                      desktop disk.
-                    properties:
-                      name:
-                        type: string
-                      namespace:
-                        description: Namespace defaults to the instance namespace.
-                        type: string
-                    required:
-                    - name
-                    type: object
-                  size:
-                    anyOf:
-                    - type: integer
-                    - type: string
-                    default: 30Gi
-                    description: Size of the root disk. Cannot be smaller than the
-                      image.
-                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                    x-kubernetes-int-or-string: true
-                required:
-                - dataSource
-                type: object
-              instanceType:
-                default: u1.xlarge
-                description: InstanceType is a VirtualMachineClusterInstancetype name.
+                description: Image is the desktop's container image.
+                minLength: 1
                 type: string
+              imagePullPolicy:
+                description: PullPolicy describes a policy for if/when to pull a container
+                  image
+                type: string
+              imagePullSecrets:
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
               owner:
                 description: Owner is the Kubernetes user allowed to read this instance
                   and pair clients.
                 type: string
-              preference:
-                default: fedora
-                description: Preference is a VirtualMachineClusterPreference name.
-                type: string
+              resources:
+                description: Resources bound the desktop's CPU and memory.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
               running:
                 default: true
-                description: Running is the desired power state.
+                description: Running is the desired power state. A stopped desktop
+                  keeps its home.
                 type: boolean
-              sshAuthorizedKeys:
-                description: SSHAuthorizedKeys are installed for the admin user in
-                  the guest.
-                items:
-                  type: string
-                type: array
               stream:
-                description: StreamSpec is passed into the Sunshine config inside
-                  the guest.
+                description: StreamSpec is passed to the session inside the desktop.
                 properties:
-                  capture:
-                    description: |-
-                      Capture is left to Sunshine's own detection when empty: kms on a
-                      Wayland image, x11 on the Xorg image.
-                    enum:
-                    - x11
-                    - kms
-                    - wlr
-                    - kwin
-                    type: string
                   encoder:
-                    default: software
+                    description: |-
+                      Encoder is chosen by the image when empty: vaapi when the desktop
+                      has a GPU, software otherwise.
                     enum:
                     - software
                     - vaapi
-                    - nvenc
-                    - quicksync
-                    - amdvce
-                    - vulkan
+                    type: string
+                  keyboardLayout:
+                    description: KeyboardLayout is an XKB layout name, us when empty.
                     type: string
                 type: object
             required:

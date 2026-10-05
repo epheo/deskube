@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Operator level proof: a VdiInstance becomes a desktop, a VdiPairing
+# Operator level proof: a VdiInstance becomes a desktop pod, a VdiPairing
 # carries the PIN, and a headless Moonlight receives video.
 # Needs the manager running (make run or a deployment) and the
 # moonlight-cli image from hack/moonlight-cli.
 set -euo pipefail
 NS=${NS:-deskube-dev}
 NAME=${NAME:-desk-op}
-IMAGE=${IMAGE:-deskube-fedora-xfce}
+IMAGE=${IMAGE:-registry.desku.be/deskube/desktop:dev}
 OWNER=${OWNER:-$(oc whoami)}
-KEY=${KEY:-$HOME/.ssh/deskube-dev.pub}
 WORK=${WORK:-$(mktemp -d)}
 CACHE=$WORK/moonlight-cache
 mkdir -p "$CACHE"
@@ -22,12 +21,12 @@ kind: VdiInstance
 metadata:
   name: $NAME
 spec:
-  image:
-    dataSource:
-      name: $IMAGE
+  image: $IMAGE
+  imagePullPolicy: Always
   owner: $OWNER
-  sshAuthorizedKeys:
-    - $(cat "$KEY")
+  resources:
+    requests: {cpu: "2", memory: 4Gi}
+    limits: {memory: 4Gi}
 EOF
 for _ in $(seq 1 60); do
   phase=$(oc -n "$NS" get vdiinstance "$NAME" -o jsonpath='{.status.phase}' 2>/dev/null || true)
@@ -36,7 +35,7 @@ for _ in $(seq 1 60); do
   [ "$phase" = Ready ] && break
   sleep 5
 done
-[ "$phase" = Ready ] || { oc -n "$NS" get vdiinstance "$NAME" -o yaml | sed -n '/status:/,$p'; exit 1; }
+[ "$phase" = Ready ] || { oc -n "$NS" get vdiinstance "$NAME" -o yaml | sed -n '/^status:/,$p'; exit 1; }
 HOST=${addr%:*}; PORT=${addr##*:}
 
 echo "== pair through a VdiPairing"
@@ -72,11 +71,13 @@ grep -q "Succesfully paired" "$WORK/pair.log" || { cat "$WORK/pair.log"; exit 1;
 echo "== stream (25s)"
 timeout 25 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i --entrypoint stdbuf moonlight-cli \
   -oL -eL moonlight stream -port "$PORT" -platform fake -viewonly -app Desktop \
-  -width 1280 -height 720 -fps 30 -bitrate 3000 -verbose "$HOST" > "$WORK/stream.log" 2>&1 || true
+  -width 1920 -height 1080 -fps 60 -bitrate 10000 -verbose "$HOST" > "$WORK/stream.log" 2>&1 || true
 timeout 20 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i moonlight-cli quit -port "$PORT" "$HOST" > /dev/null 2>&1 || true
-grep -E "RTSP|Starting (control|video|audio) stream|first (video|audio) packet" "$WORK/stream.log"
+grep -E "first audio packet|Video frames" "$WORK/stream.log"
 echo "== session state seen by the operator"
 sleep 3
 oc -n "$NS" get vdiinstance "$NAME"
 echo "logs in $WORK"
-if grep -q "Received first video packet" "$WORK/stream.log"; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; exit 1; fi
+# The first packet proves little; count what arrived. A still desktop sends few frames.
+GOT=$(sed -n 's/^Video frames received: .* s, \([0-9]*\)\..* fps.*/\1/p' "$WORK/stream.log" | head -1)
+if [ "${GOT:-0}" -ge "${MIN_FPS:-5}" ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL, ${GOT:-no} fps received"; exit 1; fi

@@ -9,9 +9,9 @@ export interface Condition {
 
 export interface VdiInstance extends K8sResourceCommon {
   spec: {
-    image: { dataSource: { name: string; namespace?: string }; size?: string };
-    instanceType?: string;
-    preference?: string;
+    image: string;
+    resources?: { requests?: Record<string, string>; limits?: Record<string, string> };
+    home?: { size?: string; storageClassName?: string };
     owner?: string;
     running?: boolean;
     idleTimeout?: string;

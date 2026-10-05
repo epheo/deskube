@@ -17,25 +17,20 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DataSourceRef names a CDI DataSource holding a prepared desktop disk.
-type DataSourceRef struct {
-	Name string `json:"name"`
-	// Namespace defaults to the instance namespace.
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-}
-
-// ImageSource is the golden image a desktop boots from.
-type ImageSource struct {
-	DataSource DataSourceRef `json:"dataSource"`
-	// Size of the root disk. Cannot be smaller than the image.
-	// +kubebuilder:default="30Gi"
+// HomeSpec is the volume that keeps the desktop user's files, pairings
+// included, across restarts.
+type HomeSpec struct {
+	// +kubebuilder:default="20Gi"
 	// +optional
 	Size resource.Quantity `json:"size,omitempty"`
+	// StorageClassName is the cluster default when empty.
+	// +optional
+	StorageClassName *string `json:"storageClassName,omitempty"`
 }
 
 // ExposeType selects how the stream reaches the client.
@@ -64,34 +59,36 @@ type ExposeSpec struct {
 	Host string `json:"host,omitempty"`
 }
 
-// StreamSpec is passed into the Sunshine config inside the guest.
+// StreamSpec is passed to the session inside the desktop.
 type StreamSpec struct {
-	// +kubebuilder:validation:Enum=software;vaapi;nvenc;quicksync;amdvce;vulkan
-	// +kubebuilder:default=software
+	// Encoder is chosen by the image when empty: vaapi when the desktop
+	// has a GPU, software otherwise.
+	// +kubebuilder:validation:Enum=software;vaapi
 	// +optional
 	Encoder string `json:"encoder,omitempty"`
-	// Capture is left to Sunshine's own detection when empty: kms on a
-	// Wayland image, x11 on the Xorg image.
-	// +kubebuilder:validation:Enum=x11;kms;wlr;kwin
+	// KeyboardLayout is an XKB layout name, us when empty.
 	// +optional
-	Capture string `json:"capture,omitempty"`
+	KeyboardLayout string `json:"keyboardLayout,omitempty"`
 }
 
 // VdiInstanceSpec defines one desktop for one owner.
 type VdiInstanceSpec struct {
-	Image ImageSource `json:"image"`
-	// InstanceType is a VirtualMachineClusterInstancetype name.
-	// +kubebuilder:default=u1.xlarge
+	// Image is the desktop's container image.
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
 	// +optional
-	InstanceType string `json:"instanceType,omitempty"`
-	// Preference is a VirtualMachineClusterPreference name.
-	// +kubebuilder:default=fedora
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
-	Preference string `json:"preference,omitempty"`
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// Resources bound the desktop's CPU and memory.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// +optional
+	Home HomeSpec `json:"home,omitempty"`
 	// Owner is the Kubernetes user allowed to read this instance and pair clients.
 	// +optional
 	Owner string `json:"owner,omitempty"`
-	// Running is the desired power state.
+	// Running is the desired power state. A stopped desktop keeps its home.
 	// +kubebuilder:default=true
 	// +optional
 	Running *bool `json:"running,omitempty"`
@@ -103,9 +100,6 @@ type VdiInstanceSpec struct {
 	Expose ExposeSpec `json:"expose,omitempty"`
 	// +optional
 	Stream StreamSpec `json:"stream,omitempty"`
-	// SSHAuthorizedKeys are installed for the admin user in the guest.
-	// +optional
-	SSHAuthorizedKeys []string `json:"sshAuthorizedKeys,omitempty"`
 }
 
 // VdiInstancePhase is a one word summary of the status conditions.

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import {
   Alert,
@@ -16,13 +16,8 @@ import {
   ModalVariant,
   TextInput,
 } from '@patternfly/react-core';
-import {
-  K8sResourceCommon,
-  k8sCreate,
-  useK8sModel,
-  useK8sWatchResource,
-} from '@openshift-console/dynamic-plugin-sdk';
-import { ClusterInstancetypeGVK, DataSourceGVK, VdiInstanceGVK } from '../constants';
+import { k8sCreate, useK8sModel } from '@openshift-console/dynamic-plugin-sdk';
+import { DEFAULT_IMAGE, VdiInstanceGVK } from '../constants';
 import { VdiInstance } from '../types';
 
 interface Props {
@@ -38,35 +33,26 @@ const IDLE_OPTIONS = [
   { value: '8h', label: '8 hours' },
 ];
 
-const nameOf = (r: K8sResourceCommon): string => r.metadata?.name ?? '';
+// Memory is requested and capped, CPU only requested: a CPU cap
+// throttles, and a throttled desktop stutters.
+const SIZES: Record<string, { label: string; cpu: string; memory: string }> = {
+  small: { label: 'Small: 2 CPU, 4 GiB', cpu: '2', memory: '4Gi' },
+  medium: { label: 'Medium: 4 CPU, 8 GiB', cpu: '4', memory: '8Gi' },
+  large: { label: 'Large: 8 CPU, 16 GiB', cpu: '8', memory: '16Gi' },
+};
 
 export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onClose }) => {
   const [model] = useK8sModel(VdiInstanceGVK);
   const [name, setName] = useState('');
   const [namespace, setNamespace] = useState(activeNamespace ?? 'default');
-  const [image, setImage] = useState('');
-  const [instanceType, setInstanceType] = useState('u1.xlarge');
+  const [image, setImage] = useState(DEFAULT_IMAGE);
+  const [size, setSize] = useState('small');
   const [owner, setOwner] = useState('');
   const [idleTimeout, setIdleTimeout] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Both lists are optional: a plain owner may not be allowed to read them.
-  const imagesWatch = useMemo(
-    () => ({ groupVersionKind: DataSourceGVK, isList: true, namespace, optional: true }),
-    [namespace],
-  );
-  const [images] = useK8sWatchResource<K8sResourceCommon[]>(imagesWatch);
-  const typesWatch = useMemo(() => ({ groupVersionKind: ClusterInstancetypeGVK, isList: true, optional: true }), []);
-  const [types] = useK8sWatchResource<K8sResourceCommon[]>(typesWatch);
-
-  const imageNames = (images ?? []).map(nameOf).sort();
-  const typeNames = (types ?? []).map(nameOf).filter((n) => n.startsWith('u1.')).sort();
-  if (!image && imageNames.length > 0) {
-    setImage(imageNames[0]);
-  }
-
-  const valid = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) && namespace !== '' && image !== '';
+  const valid = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) && namespace !== '' && image.trim() !== '';
 
   const submit = async () => {
     setError(null);
@@ -76,8 +62,11 @@ export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onCl
       kind: 'VdiInstance',
       metadata: { name, namespace },
       spec: {
-        image: { dataSource: { name: image } },
-        instanceType,
+        image: image.trim(),
+        resources: {
+          requests: { cpu: SIZES[size].cpu, memory: SIZES[size].memory },
+          limits: { memory: SIZES[size].memory },
+        },
         ...(owner.trim() ? { owner: owner.trim() } : {}),
         ...(idleTimeout ? { idleTimeout } : {}),
       },
@@ -104,30 +93,18 @@ export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onCl
               <TextInput id="namespace" value={namespace} onChange={(_e, v) => setNamespace(v)} />
             </FormGroup>
           )}
-          <FormGroup label="Golden image" isRequired fieldId="image">
-            {imageNames.length > 0 ? (
-              <FormSelect id="image" value={image} onChange={(_e, v) => setImage(v)}>
-                {imageNames.map((n) => (
-                  <FormSelectOption key={n} value={n} label={n} />
-                ))}
-              </FormSelect>
-            ) : (
-              <TextInput id="image" value={image} onChange={(_e, v) => setImage(v)} placeholder="deskube-fedora-xfce" />
-            )}
+          <FormGroup label="Image" isRequired fieldId="image">
+            <TextInput id="image" value={image} onChange={(_e, v) => setImage(v)} />
             <HelperText>
-              <HelperTextItem>A CDI DataSource in the same namespace.</HelperTextItem>
+              <HelperTextItem>Container image of the desktop.</HelperTextItem>
             </HelperText>
           </FormGroup>
-          <FormGroup label="Size" fieldId="instanceType">
-            {typeNames.length > 0 ? (
-              <FormSelect id="instanceType" value={instanceType} onChange={(_e, v) => setInstanceType(v)}>
-                {typeNames.map((n) => (
-                  <FormSelectOption key={n} value={n} label={n} />
-                ))}
-              </FormSelect>
-            ) : (
-              <TextInput id="instanceType" value={instanceType} onChange={(_e, v) => setInstanceType(v)} />
-            )}
+          <FormGroup label="Size" fieldId="size">
+            <FormSelect id="size" value={size} onChange={(_e, v) => setSize(v)}>
+              {Object.entries(SIZES).map(([key, s]) => (
+                <FormSelectOption key={key} value={key} label={s.label} />
+              ))}
+            </FormSelect>
           </FormGroup>
           <FormGroup label="Owner" fieldId="owner">
             <TextInput id="owner" value={owner} onChange={(_e, v) => setOwner(v)} placeholder="alice" />

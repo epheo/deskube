@@ -323,6 +323,21 @@ catalog-build: opm ## Build a catalog image.
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
 
+##@ Desktop images
+
+DESKTOP_IMG ?= registry.desku.be/deskube/desktop:dev
+DESKTOP_STEAM_IMG ?= registry.desku.be/deskube/desktop-steam:dev
+
+.PHONY: desktop-build
+desktop-build: ## Build the desktop image and its gaming variant.
+	$(CONTAINER_TOOL) build -t $(DESKTOP_IMG) images/desktop-pod
+	$(CONTAINER_TOOL) build -t $(DESKTOP_STEAM_IMG) --build-arg BASE=$(DESKTOP_IMG) images/desktop-pod-steam
+
+.PHONY: desktop-push
+desktop-push: ## Push the desktop images.
+	$(CONTAINER_TOOL) push $(DESKTOP_IMG)
+	$(CONTAINER_TOOL) push $(DESKTOP_STEAM_IMG)
+
 ##@ Console plugin
 
 CONSOLE_IMG ?= registry.desku.be/deskube/console-plugin:dev

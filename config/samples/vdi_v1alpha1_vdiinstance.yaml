@@ -3,8 +3,14 @@ kind: VdiInstance
 metadata:
   name: alice-desk
 spec:
-  image:
-    dataSource:
-      name: deskube-fedora-xfce
+  image: registry.desku.be/deskube/desktop:dev
   owner: alice
-  sshAuthorizedKeys: []
+  idleTimeout: 1h
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      memory: 4Gi
+  home:
+    size: 20Gi

@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - nodes
+  - pods
   verbs:
   - get
   - list
@@ -15,6 +16,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
   - secrets
   - services
   verbs:
@@ -26,17 +28,9 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kubevirt.io
+  - apps
   resources:
-  - virtualmachineinstances
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - kubevirt.io
-  resources:
-  - virtualmachines
+  - deployments
   verbs:
   - create
   - delete

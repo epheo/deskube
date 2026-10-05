@@ -38,7 +38,6 @@ import (
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
 	"github.com/deskube/deskube/internal/controller"
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,7 +51,6 @@ func init() {
 
 	utilruntime.Must(vdiv1alpha1.AddToScheme(scheme))
 	// Add OpenShift route scheme
-	utilruntime.Must(kubevirtv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

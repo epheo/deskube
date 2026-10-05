@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,30 +34,29 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
-	kubevirtv1 "kubevirt.io/api/core/v1"
-	cdiv1beta1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
-	"github.com/deskube/deskube/internal/guest"
 	"github.com/deskube/deskube/internal/sunshine"
 )
 
 // Condition types on a VdiInstance. Ready aggregates the other three.
 const (
-	ConditionVMReady        = "VMReady"
+	ConditionPodReady       = "PodReady"
 	ConditionNetworkReady   = "NetworkReady"
 	ConditionStreamingReady = "StreamingReady"
 	ConditionReady          = "Ready"
 
 	labelInstance = "vdi.desku.be/instance"
 	adminUser     = "admin"
+	containerName = "desktop"
+	// The image's user and home; an arbitrary UID gets the same home.
+	homePath = "/home/desk"
 
 	requeueStarting = 10 * time.Second
 	requeueReady    = 30 * time.Second
@@ -65,8 +65,8 @@ const (
 // ProbeFunc reads Sunshine serverinfo; tests replace it.
 type ProbeFunc func(ctx context.Context, host string, basePort int32) (*sunshine.ServerInfo, error)
 
-// VdiInstanceReconciler turns a VdiInstance into a VM, a Service, and
-// the secrets the guest and the pairing controller need.
+// VdiInstanceReconciler turns a VdiInstance into a desktop pod with a
+// home volume, a Service, and the secret the pairing controller needs.
 type VdiInstanceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -79,10 +79,9 @@ type VdiInstanceReconciler struct {
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances/finalizers,verbs=update
-// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets;services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets;services;persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=nodes;pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile converges the children, then reports how to connect.
@@ -123,16 +122,15 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 		log.Info("allocated base port", "basePort", base)
 	}
 
-	password, err := r.ensureAdminSecret(ctx, vdi)
-	if err != nil {
+	if err := r.ensureAdminSecret(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.ensureCloudInitSecret(ctx, vdi, password); err != nil {
-		return ctrl.Result{}, err
+	if err := r.ensureHome(ctx, vdi); err != nil {
+		return r.fail(ctx, vdi, ConditionPodReady, "HomeApply", err)
 	}
-	vm, err := r.ensureVM(ctx, vdi)
+	dep, err := r.ensureDeployment(ctx, vdi)
 	if err != nil {
-		return r.fail(ctx, vdi, ConditionVMReady, "VMApply", err)
+		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
 	}
 	svc, err := r.ensureService(ctx, vdi)
 	if err != nil {
@@ -141,7 +139,7 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	if err := r.ensureOwnerRBAC(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
-	return r.updateStatus(ctx, vdi, vm, svc)
+	return r.updateStatus(ctx, vdi, dep, svc)
 }
 
 // chooseBasePort honours a pinned port, else takes the lowest free window.
@@ -178,7 +176,7 @@ func (r *VdiInstanceReconciler) chooseBasePort(ctx context.Context, vdi *vdiv1al
 	return allocateNodePortBase(used)
 }
 
-func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (string, error) {
+func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: adminSecretName(vdi), Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
 		if secret.Data == nil {
@@ -194,143 +192,136 @@ func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv
 		secret.Data["username"] = []byte(adminUser)
 		return controllerutil.SetControllerReference(vdi, secret, r.Scheme)
 	})
-	if err != nil {
-		return "", err
-	}
-	return string(secret.Data["password"]), nil
+	return err
 }
 
-func (r *VdiInstanceReconciler) ensureCloudInitSecret(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, password string,
-) error {
-	userData, err := guest.CloudInit(guest.Params{
-		Name:              vdi.Name,
-		BasePort:          vdi.Status.BasePort,
-		AdminUser:         adminUser,
-		AdminPassword:     password,
-		SSHAuthorizedKeys: vdi.Spec.SSHAuthorizedKeys,
-		Encoder:           vdi.Spec.Stream.Encoder,
-		Capture:           vdi.Spec.Stream.Capture,
-	})
-	if err != nil {
-		return err
-	}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: cloudInitSecretName(vdi), Namespace: vdi.Namespace}}
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-		secret.Data = map[string][]byte{"userdata": []byte(userData)}
-		return controllerutil.SetControllerReference(vdi, secret, r.Scheme)
+// ensureHome creates the home volume once. It outlives every restart
+// of the desktop and goes away with the instance.
+func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: homeClaimName(vdi), Namespace: vdi.Namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, pvc, func() error {
+		// A bound claim accepts next to no change.
+		if pvc.UID != "" {
+			return nil
+		}
+		size := vdi.Spec.Home.Size
+		if size.IsZero() {
+			size = resource.MustParse("20Gi")
+		}
+		pvc.Labels = map[string]string{labelInstance: vdi.Name}
+		pvc.Spec = corev1.PersistentVolumeClaimSpec{
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			StorageClassName: vdi.Spec.Home.StorageClassName,
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: size},
+			},
+		}
+		return controllerutil.SetControllerReference(vdi, pvc, r.Scheme)
 	})
 	return err
 }
 
-func (r *VdiInstanceReconciler) ensureVM(
+func (r *VdiInstanceReconciler) ensureDeployment(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
-) (*kubevirtv1.VirtualMachine, error) {
-	vm := &kubevirtv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, vm, func() error {
-		strategy := kubevirtv1.RunStrategyAlways
+) (*appsv1.Deployment, error) {
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
+		labels := map[string]string{labelInstance: vdi.Name}
+		replicas := int32(1)
 		if vdi.Spec.Running != nil && !*vdi.Spec.Running {
-			strategy = kubevirtv1.RunStrategyHalted
+			replicas = 0
 		}
-		// Only the power state follows spec changes. The disk and the
-		// cloud-init are read once at first boot, rewriting them is churn.
-		if vm.UID != "" {
-			vm.Spec.RunStrategy = &strategy
-			return nil
+		dep.Labels = labels
+		dep.Spec.Replicas = &replicas
+		// The home volume and the ports belong to one pod at a time.
+		dep.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
+		if dep.UID == "" {
+			dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
-		vm.Labels = map[string]string{labelInstance: vdi.Name}
-		vm.Spec = desiredVMSpec(vdi, strategy)
-		return controllerutil.SetControllerReference(vdi, vm, r.Scheme)
+		dep.Spec.Template.Labels = labels
+		fillPodSpec(vdi, &dep.Spec.Template.Spec)
+		return controllerutil.SetControllerReference(vdi, dep, r.Scheme)
 	})
-	return vm, err
+	return dep, err
 }
 
-func desiredVMSpec(
-	vdi *vdiv1alpha1.VdiInstance, strategy kubevirtv1.VirtualMachineRunStrategy,
-) kubevirtv1.VirtualMachineSpec {
-	instanceType := vdi.Spec.InstanceType
-	if instanceType == "" {
-		instanceType = "u1.xlarge"
+// fillPodSpec fills the pod in place. Fields it does not name keep what
+// the API server defaulted, so an unchanged instance writes nothing.
+func fillPodSpec(vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec) {
+	base := vdi.Status.BasePort
+	web := strconv.Itoa(int(base + sunshine.OffsetWeb))
+
+	pod.Hostname = vdi.Name
+	// A desktop runs whatever its user starts; none of it gets an API token.
+	pod.AutomountServiceAccountToken = ptr.To(false)
+	pod.EnableServiceLinks = ptr.To(false)
+	pod.TerminationGracePeriodSeconds = ptr.To(int64(10))
+	pod.ImagePullSecrets = vdi.Spec.ImagePullSecrets
+	if pod.SecurityContext == nil {
+		pod.SecurityContext = &corev1.PodSecurityContext{}
 	}
-	preference := vdi.Spec.Preference
-	if preference == "" {
-		preference = "fedora"
-	}
-	size := vdi.Spec.Image.Size
-	if size.IsZero() {
-		size = resource.MustParse("30Gi")
-	}
-	imageNS := vdi.Spec.Image.DataSource.Namespace
-	if imageNS == "" {
-		imageNS = vdi.Namespace
-	}
-	rootDV := vdi.Name + "-root"
-	return kubevirtv1.VirtualMachineSpec{
-		RunStrategy:  &strategy,
-		Instancetype: &kubevirtv1.InstancetypeMatcher{Kind: "VirtualMachineClusterInstancetype", Name: instanceType},
-		Preference:   &kubevirtv1.PreferenceMatcher{Kind: "VirtualMachineClusterPreference", Name: preference},
-		DataVolumeTemplates: []kubevirtv1.DataVolumeTemplateSpec{{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: rootDV,
-				// A thin snapshot clones in seconds where a copy takes minutes.
-				Annotations: map[string]string{"cdi.kubevirt.io/cloneType": "snapshot"},
-			},
-			Spec: cdiv1beta1.DataVolumeSpec{
-				SourceRef: &cdiv1beta1.DataVolumeSourceRef{
-					Kind:      "DataSource",
-					Name:      vdi.Spec.Image.DataSource.Name,
-					Namespace: &imageNS,
-				},
-				Storage: &cdiv1beta1.StorageSpec{
-					Resources: corev1.VolumeResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceStorage: size},
-					},
-				},
-			},
+	pod.SecurityContext.RunAsNonRoot = ptr.To(true)
+	pod.SecurityContext.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	pod.Volumes = []corev1.Volume{
+		{Name: "home", VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: homeClaimName(vdi)},
 		}},
-		Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{
-			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{labelInstance: vdi.Name}},
-			Spec: kubevirtv1.VirtualMachineInstanceSpec{
-				Domain: kubevirtv1.DomainSpec{
-					Devices: kubevirtv1.Devices{
-						// virtio-gpu gives the guest a KMS device with a full mode list;
-						// the EFI default is bochs.
-						Video: &kubevirtv1.VideoDevice{Type: "virtio"},
-						Disks: []kubevirtv1.Disk{virtioDisk("rootdisk"), virtioDisk("cloudinitdisk")},
-						// Masquerade with no port list forwards every port, UDP included.
-						Interfaces: []kubevirtv1.Interface{{
-							Name: "default",
-							InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
-								Masquerade: &kubevirtv1.InterfaceMasquerade{},
-							},
-						}},
-					},
-				},
-				Networks: []kubevirtv1.Network{{
-					Name:          "default",
-					NetworkSource: kubevirtv1.NetworkSource{Pod: &kubevirtv1.PodNetwork{}},
-				}},
-				Volumes: []kubevirtv1.Volume{
-					{
-						Name:         "rootdisk",
-						VolumeSource: kubevirtv1.VolumeSource{DataVolume: &kubevirtv1.DataVolumeSource{Name: rootDV}},
-					},
-					{
-						Name: "cloudinitdisk",
-						VolumeSource: kubevirtv1.VolumeSource{CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-							UserDataSecretRef: &corev1.LocalObjectReference{Name: cloudInitSecretName(vdi)},
-						}},
-					},
-				},
-			},
-		},
+		// The default 64Mi of /dev/shm starves browsers and games.
+		{Name: "shm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+			Medium: corev1.StorageMediumMemory, SizeLimit: ptr.To(resource.MustParse("1Gi")),
+		}}},
 	}
-}
 
-func virtioDisk(name string) kubevirtv1.Disk {
-	return kubevirtv1.Disk{
-		Name:       name,
-		DiskDevice: kubevirtv1.DiskDevice{Disk: &kubevirtv1.DiskTarget{Bus: kubevirtv1.DiskBusVirtio}},
+	if len(pod.Containers) != 1 || pod.Containers[0].Name != containerName {
+		pod.Containers = []corev1.Container{{Name: containerName}}
+	}
+	c := &pod.Containers[0]
+	c.Image = vdi.Spec.Image
+	if vdi.Spec.ImagePullPolicy != "" {
+		c.ImagePullPolicy = vdi.Spec.ImagePullPolicy
+	}
+	c.Resources = vdi.Spec.Resources
+	c.Env = []corev1.EnvVar{
+		{Name: "DESKUBE_NAME", Value: vdi.Name},
+		{Name: "DESKUBE_PORT", Value: strconv.Itoa(int(base))},
+		{Name: "DESKUBE_ADMIN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: adminSecretName(vdi)}, Key: "password",
+		}}},
+		// The web UI only accepts writes from origins it was told about.
+		// The node address is what a NodePort client browses to.
+		{Name: "DESKUBE_HOST_IP", ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "status.hostIP"},
+		}},
+	}
+	if host := vdi.Spec.Expose.Host; host != "" {
+		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_WEB_ORIGINS", Value: "https://" + net.JoinHostPort(host, web)})
+	}
+	if vdi.Spec.Stream.Encoder != "" {
+		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_ENCODER", Value: vdi.Spec.Stream.Encoder})
+	}
+	if vdi.Spec.Stream.KeyboardLayout != "" {
+		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_KEYBOARD_LAYOUT", Value: vdi.Spec.Stream.KeyboardLayout})
+	}
+	c.Ports = make([]corev1.ContainerPort, 0, len(sunshine.Ports))
+	for _, p := range sunshine.Ports {
+		c.Ports = append(c.Ports, corev1.ContainerPort{
+			Name: p.Name, ContainerPort: base + p.Offset, Protocol: corev1.Protocol(p.Protocol),
+		})
+	}
+	c.VolumeMounts = []corev1.VolumeMount{
+		{Name: "home", MountPath: homePath},
+		{Name: "shm", MountPath: "/dev/shm"},
+	}
+	c.SecurityContext = &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+	}
+	// Every field is spelled out: a defaulted one would read as a change.
+	c.ReadinessProbe = &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+			Path: "/serverinfo", Port: intstr.FromInt32(base), Scheme: corev1.URISchemeHTTP,
+		}},
+		PeriodSeconds: 5, TimeoutSeconds: 2, SuccessThreshold: 1, FailureThreshold: 3,
 	}
 }
 
@@ -351,7 +342,7 @@ func (r *VdiInstanceReconciler) ensureService(
 	return svc, err
 }
 
-// servicePorts maps each Sunshine port 1:1, so the guest and the
+// servicePorts maps each Sunshine port 1:1, so the desktop and the
 // outside agree on the numbers RTSP advertises.
 func servicePorts(base int32, pinNodePorts bool) []corev1.ServicePort {
 	ports := make([]corev1.ServicePort, 0, len(sunshine.Ports))
@@ -422,16 +413,22 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 var verbsRead = []string{"get", "list", "watch"}
 
 func (r *VdiInstanceReconciler) updateStatus(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, vm *kubevirtv1.VirtualMachine, svc *corev1.Service,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, dep *appsv1.Deployment, svc *corev1.Service,
 ) (ctrl.Result, error) {
 	running := vdi.Spec.Running == nil || *vdi.Spec.Running
 	vdi.Status.AdminSecret = adminSecretName(vdi)
 	vdi.Status.ObservedGeneration = vdi.Generation
 
-	vmReady := vm.Status.Ready
-	setCondition(vdi, ConditionVMReady, vmReady, string(vm.Status.PrintableStatus), "")
+	pod, err := r.findPod(ctx, vdi)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// The readiness probe is Sunshine answering, so a ready pod streams.
+	podReady := dep.Status.ReadyReplicas > 0
+	reason, message := podState(pod)
+	setCondition(vdi, ConditionPodReady, podReady, reason, message)
 
-	host, err := r.clientHost(ctx, vdi, svc)
+	host, err := r.clientHost(ctx, vdi, svc, pod)
 	if host != "" {
 		vdi.Status.Address = net.JoinHostPort(host, strconv.Itoa(int(vdi.Status.BasePort)))
 	}
@@ -439,7 +436,7 @@ func (r *VdiInstanceReconciler) updateStatus(
 
 	streaming := false
 	vdi.Status.SessionState = ""
-	if vmReady && host != "" {
+	if podReady && host != "" {
 		probeHost := svc.Spec.ClusterIP
 		if r.ProbeExternal || probeHost == "" || probeHost == corev1.ClusterIPNone {
 			probeHost = host
@@ -455,10 +452,10 @@ func (r *VdiInstanceReconciler) updateStatus(
 		}
 		setCondition(vdi, ConditionStreamingReady, streaming, "ServerInfo", errString(perr))
 	} else {
-		setCondition(vdi, ConditionStreamingReady, false, "VMNotReady", "")
+		setCondition(vdi, ConditionStreamingReady, false, "PodNotReady", "")
 	}
 
-	ready := vmReady && streaming && host != ""
+	ready := podReady && streaming && host != ""
 	setCondition(vdi, ConditionReady, ready, "Aggregate", "")
 
 	idleLeft, err := r.trackIdle(ctx, vdi, running, ready)
@@ -466,13 +463,13 @@ func (r *VdiInstanceReconciler) updateStatus(
 		return ctrl.Result{}, err
 	}
 	running = vdi.Spec.Running == nil || *vdi.Spec.Running
-	vdi.Status.Phase = phase(running, ready, vm)
+	vdi.Status.Phase = phase(running, ready, pod)
 
 	if err := r.Status().Update(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
 	switch {
-	case !running && !vmReady:
+	case !running && pod == nil:
 		return ctrl.Result{}, nil
 	case ready && idleLeft > 0 && idleLeft < requeueReady:
 		return ctrl.Result{RequeueAfter: idleLeft + time.Second}, nil
@@ -481,6 +478,42 @@ func (r *VdiInstanceReconciler) updateStatus(
 	default:
 		return ctrl.Result{RequeueAfter: requeueStarting}, nil
 	}
+}
+
+// findPod returns the instance's pod, nil when there is none.
+func (r *VdiInstanceReconciler) findPod(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (*corev1.Pod, error) {
+	pods := &corev1.PodList{}
+	err := r.List(ctx, pods, client.InNamespace(vdi.Namespace), client.MatchingLabels{labelInstance: vdi.Name})
+	if err != nil {
+		return nil, err
+	}
+	var found *corev1.Pod
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		// Recreate leaves the old pod terminating next to the new one.
+		if found == nil || (found.DeletionTimestamp != nil && pod.DeletionTimestamp == nil) {
+			found = pod
+		}
+	}
+	return found, nil
+}
+
+// podState says why the desktop is not up yet, in the kubelet's words.
+func podState(pod *corev1.Pod) (reason, message string) {
+	if pod == nil {
+		return "NoPod", ""
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if w := cs.State.Waiting; w != nil && w.Reason != "" {
+			return w.Reason, w.Message
+		}
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse {
+			return cond.Reason, cond.Message
+		}
+	}
+	return string(pod.Status.Phase), ""
 }
 
 // trackIdle keeps lastActive fresh while a session runs and turns the
@@ -522,29 +555,32 @@ func (r *VdiInstanceReconciler) trackIdle(
 	return 0, nil
 }
 
-func phase(running, ready bool, vm *kubevirtv1.VirtualMachine) vdiv1alpha1.VdiInstancePhase {
-	status := string(vm.Status.PrintableStatus)
+// Waiting reasons a retry does not cure on its own.
+var failedWaiting = map[string]bool{
+	"CrashLoopBackOff": true, "ImagePullBackOff": true, "ErrImagePull": true,
+	"InvalidImageName": true, "CreateContainerConfigError": true, "CreateContainerError": true,
+}
+
+func phase(running, ready bool, pod *corev1.Pod) vdiv1alpha1.VdiInstancePhase {
 	switch {
-	case !running && vm.Status.Ready:
+	case !running && pod != nil:
 		return vdiv1alpha1.PhaseStopping
 	case !running:
 		return vdiv1alpha1.PhaseStopped
 	case ready:
 		return vdiv1alpha1.PhaseReady
-	case strings.HasPrefix(status, "Error") || status == string(kubevirtv1.VirtualMachineStatusCrashLoopBackOff):
-		return vdiv1alpha1.PhaseFailed
-	case status == string(kubevirtv1.VirtualMachineStatusProvisioning) ||
-		status == string(kubevirtv1.VirtualMachineStatusWaitingForVolumeBinding) ||
-		status == "":
+	case pod == nil || pod.Spec.NodeName == "":
 		return vdiv1alpha1.PhaseProvisioning
-	default:
-		return vdiv1alpha1.PhaseStarting
 	}
+	if reason, _ := podState(pod); failedWaiting[reason] {
+		return vdiv1alpha1.PhaseFailed
+	}
+	return vdiv1alpha1.PhaseStarting
 }
 
 // clientHost is the address a Moonlight client dials.
 func (r *VdiInstanceReconciler) clientHost(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, svc *corev1.Service,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, svc *corev1.Service, pod *corev1.Pod,
 ) (string, error) {
 	if vdi.Spec.Expose.Host != "" {
 		return vdi.Spec.Expose.Host, nil
@@ -560,12 +596,11 @@ func (r *VdiInstanceReconciler) clientHost(
 		}
 		return "", fmt.Errorf("load balancer address not assigned yet")
 	}
-	// NodePorts answer on every node, the one running the VM has the
-	// shortest path.
+	// NodePorts answer on every node, the one running the desktop has
+	// the shortest path.
 	nodeName := ""
-	vmi := &kubevirtv1.VirtualMachineInstance{}
-	if err := r.Get(ctx, types.NamespacedName{Name: vdi.Name, Namespace: vdi.Namespace}, vmi); err == nil {
-		nodeName = vmi.Status.NodeName
+	if pod != nil {
+		nodeName = pod.Spec.NodeName
 	}
 	nodes := &corev1.NodeList{}
 	if err := r.List(ctx, nodes); err != nil {
@@ -636,7 +671,7 @@ func setCondition(vdi *vdiv1alpha1.VdiInstance, conditionType string, ok bool, r
 	})
 }
 
-// sanitizeReason keeps KubeVirt printable statuses valid as condition reasons.
+// sanitizeReason keeps free form reasons valid as condition reasons.
 func sanitizeReason(s string) string {
 	var b strings.Builder
 	for _, c := range s {
@@ -657,14 +692,15 @@ func errString(err error) string {
 	return err.Error()
 }
 
-func adminSecretName(vdi *vdiv1alpha1.VdiInstance) string     { return vdi.Name + "-sunshine-admin" }
-func cloudInitSecretName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-cloudinit" }
+func adminSecretName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-sunshine-admin" }
+func homeClaimName(vdi *vdiv1alpha1.VdiInstance) string   { return vdi.Name + "-home" }
 
 // SetupWithManager registers the controller and its owned resources.
 func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vdiv1alpha1.VdiInstance{}).
-		Owns(&kubevirtv1.VirtualMachine{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
 		Owns(&rbacv1.Role{}).

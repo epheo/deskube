@@ -82,7 +82,7 @@ var _ = Describe("VdiPairing controller", Ordered, func() {
 		})).To(Succeed())
 		vdi := &vdiv1alpha1.VdiInstance{
 			ObjectMeta: metav1.ObjectMeta{Name: "desk", Namespace: ns},
-			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: vdiv1alpha1.ImageSource{DataSource: vdiv1alpha1.DataSourceRef{Name: "golden"}}},
+			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: "registry.example/desktop:1"},
 		}
 		Expect(k8sClient.Create(ctx, vdi)).To(Succeed())
 		vdi.Status = vdiv1alpha1.VdiInstanceStatus{Phase: vdiv1alpha1.PhaseStarting, BasePort: 31989, Address: "203.0.113.10:31989", AdminSecret: "desk-sunshine-admin"}
