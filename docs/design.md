@@ -111,6 +111,8 @@ LoadBalancer exposure uses base 47989 and one IP per desktop.
    container_t the /proc mount is denied. Seccomp is unconfined unless
    the manager is given a node profile: the runtime's default filter
    refuses nested namespaces. Gamepads are set aside.
+   Steam itself ran in such a pod, no GPU: its sandbox started and the
+   client reached its sign in window.
 4. Limits the kubelet does not know: GPU memory through the dmem cgroup
    controller, a frame cap per desktop.
 5. Pools and templates.
