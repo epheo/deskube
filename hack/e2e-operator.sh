@@ -48,8 +48,13 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 [ -n "$PIN" ] || { cat "$WORK/pair.log"; echo "no PIN from client"; exit 1; }
-oc -n "$NS" delete vdipairing "$NAME-e2e" --ignore-not-found > /dev/null
-oc -n "$NS" apply -f - <<EOF
+sleep 2
+if grep -q "Already paired" "$WORK/pair.log"; then
+  # The pairing lives in the home volume and outlives the pod.
+  echo "  client already paired, nothing to approve"
+else
+  oc -n "$NS" delete vdipairing "$NAME-e2e" --ignore-not-found > /dev/null
+  oc -n "$NS" apply -f - <<EOF
 apiVersion: vdi.desku.be/v1alpha1
 kind: VdiPairing
 metadata:
@@ -59,14 +64,15 @@ spec:
   pin: "$PIN"
   clientName: e2e
 EOF
-for _ in $(seq 1 30); do
-  pphase=$(oc -n "$NS" get vdipairing "$NAME-e2e" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-  [ "$pphase" = Paired ] || [ "$pphase" = Failed ] && break
-  sleep 2
-done
-oc -n "$NS" get vdipairing "$NAME-e2e"
-wait $PAIR || true
-grep -q "Succesfully paired" "$WORK/pair.log" || { cat "$WORK/pair.log"; exit 1; }
+  for _ in $(seq 1 30); do
+    pphase=$(oc -n "$NS" get vdipairing "$NAME-e2e" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    [ "$pphase" = Paired ] || [ "$pphase" = Failed ] && break
+    sleep 2
+  done
+  oc -n "$NS" get vdipairing "$NAME-e2e"
+  wait $PAIR || true
+  grep -q "Succesfully paired" "$WORK/pair.log" || { cat "$WORK/pair.log"; exit 1; }
+fi
 
 echo "== stream (25s)"
 timeout 25 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i --entrypoint stdbuf moonlight-cli \

@@ -137,6 +137,9 @@ Design notes: `docs/design.md`. By hand results: `hack/pod/README.md`.
 - The gaming image needs privileges the operator does not grant yet.
 - The pod's volume is group owned through OpenShift's fsGroup; plain
   Kubernetes needs one set.
+- A private registry needs a pull secret in every namespace that runs
+  desktops, linked to its default service account or named in
+  `spec.imagePullSecrets`.
 - A VdiPairing with the right PIN approves whatever client is waiting.
 
 ## License
