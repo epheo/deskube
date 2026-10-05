@@ -63,6 +63,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - create
+  - get
+  - patch
+  - update
+- apiGroups:
   - vdi.desku.be
   resources:
   - vdiinstances

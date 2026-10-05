@@ -105,11 +105,20 @@ with as little as it takes:
   the stock `nested-container` SCC.
 
 It stays unprivileged: no capability, no privilege escalation, no API
-token. The one thing given up is the runtime's default seccomp filter,
-which refuses nested namespaces. Start the manager with
-`--sandbox-seccomp-profile=<path under the kubelet's seccomp directory>`
-to use a profile from the nodes instead of none; podman's default
-profile on a current Fedora is one that works.
+token. The runtime's default seccomp filter refuses nested namespaces,
+so such a desktop needs another one. The manager picks the tightest
+available and reports it in the `SeccompFiltered` condition:
+
+1. `--sandbox-seccomp-profile=<path under the kubelet's seccomp
+   directory>`, a profile an admin already put on the nodes.
+2. Otherwise its built in profile, installed on the nodes by the
+   [Security Profiles Operator](https://github.com/kubernetes-sigs/security-profiles-operator)
+   when that operator is present. The desktop waits for it rather than
+   start unfiltered. DeskuBe itself never touches a node.
+3. Otherwise no filter, and the condition is False and says so.
+
+The built in profile is podman's default on Fedora, resolved for a
+container without capabilities by `hack/seccomp/flatten.py`.
 
 ## Console plugin
 

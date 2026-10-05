@@ -51,6 +51,9 @@ const (
 	ConditionNetworkReady   = "NetworkReady"
 	ConditionStreamingReady = "StreamingReady"
 	ConditionReady          = "Ready"
+	// ConditionSeccompFiltered is not part of Ready: it says whether the
+	// desktop runs under a seccomp filter, and which.
+	ConditionSeccompFiltered = "SeccompFiltered"
 
 	labelInstance = "vdi.desku.be/instance"
 	adminUser     = "admin"
@@ -81,9 +84,10 @@ type VdiInstanceReconciler struct {
 	// APIReader reads without the cache: the manager may get one
 	// ClusterRole by name, not list and watch them all.
 	APIReader client.Reader
-	// SandboxSeccompProfile is a seccomp profile on the nodes, relative
-	// to the kubelet's seccomp directory, that allows nested namespaces.
-	// Sandbox desktops run unconfined by seccomp when it is empty.
+	// SandboxSeccompProfile names a seccomp profile already on the
+	// nodes, relative to the kubelet's seccomp directory, for sandbox
+	// desktops. It overrides the profile the manager would otherwise
+	// have the Security Profiles Operator install.
 	SandboxSeccompProfile string
 }
 
@@ -145,7 +149,24 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "SandboxIdentity", err)
 	}
-	dep, err := r.ensureDeployment(ctx, vdi, pullSecrets)
+	seccomp, err := r.chooseSeccomp(ctx, vdi)
+	if err != nil {
+		return r.fail(ctx, vdi, ConditionPodReady, "SeccompProfile", err)
+	}
+	setCondition(vdi, ConditionSeccompFiltered,
+		seccomp.Reason != seccompNone && seccomp.Reason != seccompPending, seccomp.Reason, seccomp.Message)
+	if seccomp.Profile == nil {
+		// Starting unfiltered now and filtered later would restart the
+		// desktop under its user; a few seconds of waiting does not.
+		setCondition(vdi, ConditionPodReady, false, seccomp.Reason, seccomp.Message)
+		setCondition(vdi, ConditionReady, false, seccomp.Reason, "")
+		vdi.Status.Phase = vdiv1alpha1.PhaseProvisioning
+		if err := r.Status().Update(ctx, vdi); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+	}
+	dep, err := r.ensureDeployment(ctx, vdi, pullSecrets, seccomp.Profile)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
 	}
@@ -301,6 +322,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 
 func (r *VdiInstanceReconciler) ensureDeployment(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, pullSecrets []corev1.LocalObjectReference,
+	seccomp *corev1.SeccompProfile,
 ) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
@@ -317,7 +339,7 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 			dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
 		dep.Spec.Template.Labels = labels
-		fillPodSpec(vdi, &dep.Spec.Template.Spec, pullSecrets, r.SandboxSeccompProfile)
+		fillPodSpec(vdi, &dep.Spec.Template.Spec, pullSecrets, seccomp)
 		return controllerutil.SetControllerReference(vdi, dep, r.Scheme)
 	})
 	return dep, err
@@ -326,7 +348,8 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 // fillPodSpec fills the pod in place. Fields it does not name keep what
 // the API server defaulted, so an unchanged instance writes nothing.
 func fillPodSpec(
-	vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec, pullSecrets []corev1.LocalObjectReference, sandboxSeccomp string,
+	vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec, pullSecrets []corev1.LocalObjectReference,
+	seccomp *corev1.SeccompProfile,
 ) {
 	base := vdi.Status.BasePort
 	web := strconv.Itoa(int(base + sunshine.OffsetWeb))
@@ -345,6 +368,7 @@ func fillPodSpec(
 	}
 	psc := pod.SecurityContext
 	psc.RunAsNonRoot = ptr.To(true)
+	psc.SeccompProfile = seccomp
 	sandbox := vdi.Spec.NestedSandboxes
 	if sandbox {
 		pod.ServiceAccountName = sandboxAccountName(vdi)
@@ -354,20 +378,12 @@ func fillPodSpec(
 		pod.HostUsers = ptr.To(false)
 		// The SCC would default to root inside the namespace.
 		psc.RunAsUser, psc.RunAsGroup, psc.FSGroup = ptr.To(desktopUID), ptr.To(desktopUID), ptr.To(desktopUID)
-		// The runtime's default filter refuses nested namespaces.
-		psc.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined}
-		if sandboxSeccomp != "" {
-			psc.SeccompProfile = &corev1.SeccompProfile{
-				Type: corev1.SeccompProfileTypeLocalhost, LocalhostProfile: ptr.To(sandboxSeccomp),
-			}
-		}
 	} else {
 		if pod.ServiceAccountName == sandboxAccountName(vdi) {
 			pod.ServiceAccountName, pod.DeprecatedServiceAccount = "", ""
 		}
 		pod.HostUsers = nil
 		psc.RunAsUser, psc.RunAsGroup, psc.FSGroup = nil, nil, nil
-		psc.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
 	}
 	pod.Volumes = []corev1.Volume{
 		{Name: "home", VolumeSource: corev1.VolumeSource{

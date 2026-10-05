@@ -108,11 +108,14 @@ LoadBalancer exposure uses base 47989 and one IP per desktop.
    `procMount: Unmasked`, no privilege escalation, no capability, and a
    service account of its own bound to the stock `nested-container`
    SCC. That SCC sets SELinux type container_engine_t; under
-   container_t the /proc mount is denied. Seccomp is unconfined unless
-   the manager is given a node profile: the runtime's default filter
-   refuses nested namespaces. Gamepads are set aside.
-   Steam itself ran in such a pod, no GPU: its sandbox started and the
-   client reached its sign in window.
+   container_t the /proc mount is denied. The runtime's default
+   seccomp filter refuses nested namespaces, so the manager has the
+   Security Profiles Operator install its own: podman's default,
+   resolved for no capabilities. DeskuBe never writes on a node.
+   Without that operator the desktop runs unfiltered and its status
+   says so. Gamepads are set aside.
+   Steam itself ran in such a pod, filter on, no GPU: its sandbox
+   started and the client reached its sign in window.
 4. Limits the kubelet does not know: GPU memory through the dmem cgroup
    controller, a frame cap per desktop.
 5. Pools and templates.

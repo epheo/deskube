@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -29,11 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
 	"github.com/deskube/deskube/internal/sunshine"
@@ -120,6 +123,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(vdi.Status.Address).To(Equal("203.0.113.10:30016"))
 		Expect(vdi.Status.AdminSecret).To(Equal("alice-sunshine-admin"))
 		Expect(vdi.Status.Phase).To(Equal(vdiv1alpha1.PhaseProvisioning))
+		Expect(meta.IsStatusConditionTrue(vdi.Status.Conditions, ConditionSeccompFiltered)).To(BeTrue())
 
 		admin := &corev1.Secret{}
 		get("alice-sunshine-admin", admin)
@@ -303,7 +307,12 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(*pod.SecurityContext.RunAsNonRoot).To(BeTrue())
 		Expect(*pod.SecurityContext.RunAsUser).To(Equal(int64(1000)))
 		Expect(*pod.SecurityContext.FSGroup).To(Equal(int64(1000)))
+		// No Security Profiles Operator here and no profile named: no filter, and it says so.
 		Expect(pod.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeUnconfined))
+		filtered := meta.FindStatusCondition(carol.Status.Conditions, ConditionSeccompFiltered)
+		Expect(filtered.Status).To(Equal(metav1.ConditionFalse))
+		Expect(filtered.Reason).To(Equal("Unconfined"))
+		Expect(filtered.Message).To(ContainSubstring("Security Profiles Operator"))
 		Expect(pod.ImagePullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "registry"}))
 		c := pod.Containers[0].SecurityContext
 		Expect(*c.ProcMount).To(Equal(corev1.UnmaskedProcMount))
@@ -317,7 +326,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		get("carol", dep)
 		Expect(dep.ResourceVersion).To(Equal(before))
 
-		// A profile on the nodes replaces "no filter at all".
+		// A profile named on the command line replaces "no filter at all".
 		r.SandboxSeccompProfile = "profiles/sandbox.json"
 		reconcile("carol")
 		r.SandboxSeccompProfile = ""
@@ -325,6 +334,8 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		seccomp := dep.Spec.Template.Spec.SecurityContext.SeccompProfile
 		Expect(seccomp.Type).To(Equal(corev1.SeccompProfileTypeLocalhost))
 		Expect(*seccomp.LocalhostProfile).To(Equal("profiles/sandbox.json"))
+		get("carol", carol)
+		Expect(meta.IsStatusConditionTrue(carol.Status.Conditions, ConditionSeccompFiltered)).To(BeTrue())
 
 		carol.Spec.NestedSandboxes = false
 		Expect(k8sClient.Update(ctx, carol)).To(Succeed())
@@ -341,6 +352,63 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(pod.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeRuntimeDefault))
 		Expect(pod.Containers[0].SecurityContext.ProcMount).To(BeNil())
 		Expect(pod.ImagePullSecrets).To(BeEmpty())
+		get("carol", carol)
+		Expect(meta.FindStatusCondition(carol.Status.Conditions, ConditionSeccompFiltered).Reason).To(Equal("RuntimeDefault"))
+	})
+
+	It("has the Security Profiles Operator install its filter and waits for it", func() {
+		_, err := envtest.InstallCRDs(cfg, envtest.CRDInstallOptions{
+			Paths: []string{filepath.Join("..", "..", "test", "crds")}, ErrorIfPathMissing: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		dave := &vdiv1alpha1.VdiInstance{
+			ObjectMeta: metav1.ObjectMeta{Name: "dave", Namespace: testNS},
+			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, NestedSandboxes: true},
+		}
+		Expect(k8sClient.Create(ctx, dave)).To(Succeed())
+		// The mapper learns the new kind on its first miss.
+		Eventually(func() error {
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "dave", Namespace: testNS}})
+			return err
+		}, "20s", "1s").Should(Succeed())
+
+		profile := &unstructured.Unstructured{}
+		profile.SetGroupVersionKind(seccompProfileGVK)
+		get(sandboxProfileName, profile)
+		action, _, _ := unstructured.NestedString(profile.Object, "spec", "defaultAction")
+		Expect(action).To(Equal("SCMP_ACT_ERRNO"))
+		arches, _, _ := unstructured.NestedStringSlice(profile.Object, "spec", "architectures")
+		Expect(arches).To(ContainElement("SCMP_ARCH_X86"))
+
+		// Not on the nodes yet: the desktop waits instead of starting unfiltered.
+		get("dave", dave)
+		Expect(dave.Status.Phase).To(Equal(vdiv1alpha1.PhaseProvisioning))
+		Expect(meta.FindStatusCondition(dave.Status.Conditions, ConditionSeccompFiltered).Reason).To(Equal("ProfilePending"))
+		key := types.NamespacedName{Name: "dave", Namespace: testNS}
+		Expect(k8sClient.Get(ctx, key, &appsv1.Deployment{})).NotTo(Succeed())
+
+		Expect(unstructured.SetNestedField(profile.Object, "Installed", "status", "status")).To(Succeed())
+		Expect(unstructured.SetNestedField(profile.Object, "operator/deskube-sandbox.json", "status", "localhostProfile")).To(Succeed())
+		Expect(k8sClient.Status().Update(ctx, profile)).To(Succeed())
+		reconcile("dave")
+
+		dep := &appsv1.Deployment{}
+		get("dave", dep)
+		seccomp := dep.Spec.Template.Spec.SecurityContext.SeccompProfile
+		Expect(seccomp.Type).To(Equal(corev1.SeccompProfileTypeLocalhost))
+		Expect(*seccomp.LocalhostProfile).To(Equal("operator/deskube-sandbox.json"))
+		get("dave", dave)
+		filtered := meta.FindStatusCondition(dave.Status.Conditions, ConditionSeccompFiltered)
+		Expect(filtered.Status).To(Equal(metav1.ConditionTrue))
+		Expect(filtered.Reason).To(Equal("ManagedProfile"))
+
+		// The profile is written once, not on every pass.
+		get(sandboxProfileName, profile)
+		before := profile.GetResourceVersion()
+		reconcile("dave")
+		get(sandboxProfileName, profile)
+		Expect(profile.GetResourceVersion()).To(Equal(before))
 	})
 
 	It("rejects a pinned port outside the NodePort range", func() {

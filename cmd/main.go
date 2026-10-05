@@ -80,8 +80,9 @@ func main() {
 		"Reach Sunshine through the client address instead of the ClusterIP, for a manager outside the cluster.")
 	var sandboxSeccompProfile string
 	flag.StringVar(&sandboxSeccompProfile, "sandbox-seccomp-profile", "",
-		"Seccomp profile on the nodes, relative to the kubelet's seccomp directory, for desktops with "+
-			"nestedSandboxes. It must allow nested namespaces. Empty leaves those desktops unconfined by seccomp.")
+		"Seccomp profile already on the nodes, relative to the kubelet's seccomp directory, for desktops with "+
+			"nestedSandboxes. It must allow nested namespaces. Empty lets the Security Profiles Operator install "+
+			"the built in one, and leaves those desktops without a filter where that operator is absent.")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
