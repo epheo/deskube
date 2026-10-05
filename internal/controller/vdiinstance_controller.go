@@ -57,6 +57,10 @@ const (
 	containerName = "desktop"
 	// The image's user and home; an arbitrary UID gets the same home.
 	homePath = "/home/desk"
+	// What a sandbox desktop runs as inside its own user namespace.
+	desktopUID = int64(1000)
+	// OpenShift's ClusterRole that grants use of the nested-container SCC.
+	nestedSCCRole = "system:openshift:scc:nested-container"
 
 	requeueStarting = 10 * time.Second
 	requeueReady    = 30 * time.Second
@@ -74,6 +78,13 @@ type VdiInstanceReconciler struct {
 	// ClusterIP, for a manager running outside the cluster.
 	ProbeExternal bool
 	Probe         ProbeFunc
+	// APIReader reads without the cache: the manager may get one
+	// ClusterRole by name, not list and watch them all.
+	APIReader client.Reader
+	// SandboxSeccompProfile is a seccomp profile on the nodes, relative
+	// to the kubelet's seccomp directory, that allows nested namespaces.
+	// Sandbox desktops run unconfined by seccomp when it is empty.
+	SandboxSeccompProfile string
 }
 
 // +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiinstances,verbs=get;list;watch;create;update;patch;delete
@@ -82,6 +93,8 @@ type VdiInstanceReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets;services;persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes;pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,resourceNames="system:openshift:scc:nested-container",verbs=get;bind
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile converges the children, then reports how to connect.
@@ -128,7 +141,11 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	if err := r.ensureHome(ctx, vdi); err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "HomeApply", err)
 	}
-	dep, err := r.ensureDeployment(ctx, vdi)
+	pullSecrets, err := r.ensureSandboxIdentity(ctx, vdi)
+	if err != nil {
+		return r.fail(ctx, vdi, ConditionPodReady, "SandboxIdentity", err)
+	}
+	dep, err := r.ensureDeployment(ctx, vdi, pullSecrets)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
 	}
@@ -221,8 +238,69 @@ func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1
 	return err
 }
 
-func (r *VdiInstanceReconciler) ensureDeployment(
+// ensureSandboxIdentity gives a sandbox desktop a service account of
+// its own and, on OpenShift, binds only that account to the
+// nested-container SCC. Other desktops keep the namespace default and
+// its restricted SCC. It returns the pull secrets the default account
+// carries, which the new account does not inherit.
+func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+) ([]corev1.LocalObjectReference, error) {
+	meta := metav1.ObjectMeta{Name: sandboxAccountName(vdi), Namespace: vdi.Namespace}
+	sa := &corev1.ServiceAccount{ObjectMeta: meta}
+	binding := &rbacv1.RoleBinding{ObjectMeta: meta}
+	if !vdi.Spec.NestedSandboxes {
+		for _, obj := range []client.Object{binding, sa} {
+			if err := r.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
+	}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		// The desktop never sees a token of this account.
+		sa.AutomountServiceAccountToken = ptr.To(false)
+		return controllerutil.SetControllerReference(vdi, sa, r.Scheme)
+	}); err != nil {
+		return nil, err
+	}
+
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	err := reader.Get(ctx, client.ObjectKey{Name: nestedSCCRole}, &rbacv1.ClusterRole{})
+	switch {
+	case apierrors.IsNotFound(err):
+		// Not OpenShift: Pod Security Admission decides, nothing to bind.
+	case err != nil:
+		return nil, err
+	default:
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+			binding.Subjects = []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: sa.Name, Namespace: sa.Namespace}}
+			binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: nestedSCCRole}
+			return controllerutil.SetControllerReference(vdi, binding, r.Scheme)
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	def := &corev1.ServiceAccount{}
+	if err := r.Get(ctx, client.ObjectKey{Name: "default", Namespace: vdi.Namespace}, def); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	var pullSecrets []corev1.LocalObjectReference
+	for _, ref := range def.ImagePullSecrets {
+		// OpenShift's own registry credential is tied to the default account.
+		if !strings.HasPrefix(ref.Name, "default-dockercfg-") {
+			pullSecrets = append(pullSecrets, ref)
+		}
+	}
+	return pullSecrets, nil
+}
+
+func (r *VdiInstanceReconciler) ensureDeployment(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, pullSecrets []corev1.LocalObjectReference,
 ) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
@@ -239,7 +317,7 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 			dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
 		dep.Spec.Template.Labels = labels
-		fillPodSpec(vdi, &dep.Spec.Template.Spec)
+		fillPodSpec(vdi, &dep.Spec.Template.Spec, pullSecrets, r.SandboxSeccompProfile)
 		return controllerutil.SetControllerReference(vdi, dep, r.Scheme)
 	})
 	return dep, err
@@ -247,7 +325,9 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 
 // fillPodSpec fills the pod in place. Fields it does not name keep what
 // the API server defaulted, so an unchanged instance writes nothing.
-func fillPodSpec(vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec) {
+func fillPodSpec(
+	vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec, pullSecrets []corev1.LocalObjectReference, sandboxSeccomp string,
+) {
 	base := vdi.Status.BasePort
 	web := strconv.Itoa(int(base + sunshine.OffsetWeb))
 
@@ -256,12 +336,39 @@ func fillPodSpec(vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec) {
 	pod.AutomountServiceAccountToken = ptr.To(false)
 	pod.EnableServiceLinks = ptr.To(false)
 	pod.TerminationGracePeriodSeconds = ptr.To(int64(10))
-	pod.ImagePullSecrets = vdi.Spec.ImagePullSecrets
+	pod.ImagePullSecrets = append(append([]corev1.LocalObjectReference{}, vdi.Spec.ImagePullSecrets...), pullSecrets...)
+	if len(pod.ImagePullSecrets) == 0 {
+		pod.ImagePullSecrets = nil
+	}
 	if pod.SecurityContext == nil {
 		pod.SecurityContext = &corev1.PodSecurityContext{}
 	}
-	pod.SecurityContext.RunAsNonRoot = ptr.To(true)
-	pod.SecurityContext.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	psc := pod.SecurityContext
+	psc.RunAsNonRoot = ptr.To(true)
+	sandbox := vdi.Spec.NestedSandboxes
+	if sandbox {
+		pod.ServiceAccountName = sandboxAccountName(vdi)
+		pod.DeprecatedServiceAccount = pod.ServiceAccountName
+		// Its own user namespace is what makes the rest safe to grant:
+		// every ID in the pod is an unprivileged one on the node.
+		pod.HostUsers = ptr.To(false)
+		// The SCC would default to root inside the namespace.
+		psc.RunAsUser, psc.RunAsGroup, psc.FSGroup = ptr.To(desktopUID), ptr.To(desktopUID), ptr.To(desktopUID)
+		// The runtime's default filter refuses nested namespaces.
+		psc.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined}
+		if sandboxSeccomp != "" {
+			psc.SeccompProfile = &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeLocalhost, LocalhostProfile: ptr.To(sandboxSeccomp),
+			}
+		}
+	} else {
+		if pod.ServiceAccountName == sandboxAccountName(vdi) {
+			pod.ServiceAccountName, pod.DeprecatedServiceAccount = "", ""
+		}
+		pod.HostUsers = nil
+		psc.RunAsUser, psc.RunAsGroup, psc.FSGroup = nil, nil, nil
+		psc.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	}
 	pod.Volumes = []corev1.Volume{
 		{Name: "home", VolumeSource: corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: homeClaimName(vdi)},
@@ -315,6 +422,11 @@ func fillPodSpec(vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec) {
 	c.SecurityContext = &corev1.SecurityContext{
 		AllowPrivilegeEscalation: ptr.To(false),
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+	}
+	if sandbox {
+		// A sandbox mounts a fresh /proc, which the kernel refuses while
+		// parts of the outer one are hidden.
+		c.SecurityContext.ProcMount = ptr.To(corev1.UnmaskedProcMount)
 	}
 	// Every field is spelled out: a defaulted one would read as a change.
 	c.ReadinessProbe = &corev1.Probe{
@@ -695,6 +807,8 @@ func errString(err error) string {
 func adminSecretName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-sunshine-admin" }
 func homeClaimName(vdi *vdiv1alpha1.VdiInstance) string   { return vdi.Name + "-home" }
 
+func sandboxAccountName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-desktop" }
+
 // SetupWithManager registers the controller and its owned resources.
 func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -703,6 +817,7 @@ func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ServiceAccount{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Named("vdiinstance").

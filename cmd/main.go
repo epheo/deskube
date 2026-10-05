@@ -78,6 +78,10 @@ func main() {
 	var probeExternal bool
 	flag.BoolVar(&probeExternal, "probe-external", false,
 		"Reach Sunshine through the client address instead of the ClusterIP, for a manager outside the cluster.")
+	var sandboxSeccompProfile string
+	flag.StringVar(&sandboxSeccompProfile, "sandbox-seccomp-profile", "",
+		"Seccomp profile on the nodes, relative to the kubelet's seccomp directory, for desktops with "+
+			"nestedSandboxes. It must allow nested namespaces. Empty leaves those desktops unconfined by seccomp.")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
@@ -150,9 +154,11 @@ func main() {
 	}
 
 	if err = (&controller.VdiInstanceReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		ProbeExternal: probeExternal,
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		ProbeExternal:         probeExternal,
+		APIReader:             mgr.GetAPIReader(),
+		SandboxSeccompProfile: sandboxSeccompProfile,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VdiInstance")
 		os.Exit(1)

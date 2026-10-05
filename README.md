@@ -93,6 +93,24 @@ the operator flips `running` to false, set it back to true to resume.
 - GPU memory and GPU time have no limit in Kubernetes. A frame cap and
   a resolution cap per desktop are what bound them.
 
+## Desktops that run sandboxes
+
+Steam, Flatpak, and container engines build sandboxes of their own,
+which an ordinary pod may not. `spec.nestedSandboxes: true` allows it
+with as little as it takes:
+
+- the pod runs in its own user namespace, as UID 1000 inside it;
+- `/proc` is unmasked, so a sandbox can mount its own;
+- on OpenShift a service account made for this one desktop is bound to
+  the stock `nested-container` SCC.
+
+It stays unprivileged: no capability, no privilege escalation, no API
+token. The one thing given up is the runtime's default seccomp filter,
+which refuses nested namespaces. Start the manager with
+`--sandbox-seccomp-profile=<path under the kubelet's seccomp directory>`
+to use a profile from the nodes instead of none; podman's default
+profile on a current Fedora is one that works.
+
 ## Console plugin
 
 `console/` is an OpenShift console dynamic plugin. It adds a
@@ -134,7 +152,7 @@ Design notes: `docs/design.md`. By hand results: `hack/pod/README.md`.
 
 - The operator does not hand a GPU to the pod yet; cluster desktops
   render and encode on the CPU. With podman the GPU path works.
-- The gaming image needs privileges the operator does not grant yet.
+- The gaming image also needs a GPU, see the first gap.
 - The pod's volume is group owned through OpenShift's fsGroup; plain
   Kubernetes needs one set.
 - A private registry needs a pull secret in every namespace that runs

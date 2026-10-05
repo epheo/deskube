@@ -269,6 +269,80 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(cond.Message).To(Equal("pull access denied"))
 	})
 
+	It("gives a sandbox desktop its own identity and user namespace, and nothing more", func() {
+		Expect(k8sClient.Create(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: nestedSCCRole}})).To(Succeed())
+		// envtest runs no service account controller.
+		Expect(k8sClient.Create(ctx, &corev1.ServiceAccount{
+			ObjectMeta:       metav1.ObjectMeta{Name: "default", Namespace: testNS},
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: "registry"}, {Name: "default-dockercfg-x7k2p"}},
+		})).To(Succeed())
+		carol := &vdiv1alpha1.VdiInstance{
+			ObjectMeta: metav1.ObjectMeta{Name: "carol", Namespace: testNS},
+			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, NestedSandboxes: true},
+		}
+		Expect(k8sClient.Create(ctx, carol)).To(Succeed())
+		reconcile("carol")
+		get("carol", carol)
+
+		sa := &corev1.ServiceAccount{}
+		get("carol-desktop", sa)
+		Expect(*sa.AutomountServiceAccountToken).To(BeFalse())
+		Expect(metav1.IsControlledBy(sa, carol)).To(BeTrue())
+		binding := &rbacv1.RoleBinding{}
+		get("carol-desktop", binding)
+		Expect(binding.RoleRef.Kind).To(Equal("ClusterRole"))
+		Expect(binding.RoleRef.Name).To(Equal(nestedSCCRole))
+		Expect(binding.Subjects).To(ConsistOf(rbacv1.Subject{Kind: "ServiceAccount", Name: "carol-desktop", Namespace: testNS}))
+
+		dep := &appsv1.Deployment{}
+		get("carol", dep)
+		pod := dep.Spec.Template.Spec
+		Expect(pod.ServiceAccountName).To(Equal("carol-desktop"))
+		Expect(*pod.AutomountServiceAccountToken).To(BeFalse())
+		Expect(*pod.HostUsers).To(BeFalse())
+		Expect(*pod.SecurityContext.RunAsNonRoot).To(BeTrue())
+		Expect(*pod.SecurityContext.RunAsUser).To(Equal(int64(1000)))
+		Expect(*pod.SecurityContext.FSGroup).To(Equal(int64(1000)))
+		Expect(pod.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeUnconfined))
+		Expect(pod.ImagePullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "registry"}))
+		c := pod.Containers[0].SecurityContext
+		Expect(*c.ProcMount).To(Equal(corev1.UnmaskedProcMount))
+		Expect(*c.AllowPrivilegeEscalation).To(BeFalse())
+		Expect(c.Capabilities.Drop).To(ConsistOf(corev1.Capability("ALL")))
+		Expect(c.Capabilities.Add).To(BeEmpty())
+		Expect(c.Privileged).To(BeNil())
+
+		before := dep.ResourceVersion
+		reconcile("carol")
+		get("carol", dep)
+		Expect(dep.ResourceVersion).To(Equal(before))
+
+		// A profile on the nodes replaces "no filter at all".
+		r.SandboxSeccompProfile = "profiles/sandbox.json"
+		reconcile("carol")
+		r.SandboxSeccompProfile = ""
+		get("carol", dep)
+		seccomp := dep.Spec.Template.Spec.SecurityContext.SeccompProfile
+		Expect(seccomp.Type).To(Equal(corev1.SeccompProfileTypeLocalhost))
+		Expect(*seccomp.LocalhostProfile).To(Equal("profiles/sandbox.json"))
+
+		carol.Spec.NestedSandboxes = false
+		Expect(k8sClient.Update(ctx, carol)).To(Succeed())
+		reconcile("carol")
+		key := types.NamespacedName{Name: "carol-desktop", Namespace: testNS}
+		Expect(k8sClient.Get(ctx, key, &corev1.ServiceAccount{})).NotTo(Succeed())
+		Expect(k8sClient.Get(ctx, key, &rbacv1.RoleBinding{})).NotTo(Succeed())
+		get("carol", dep)
+		pod = dep.Spec.Template.Spec
+		Expect(pod.ServiceAccountName).To(BeEmpty())
+		Expect(pod.HostUsers).To(BeNil())
+		Expect(pod.SecurityContext.RunAsUser).To(BeNil())
+		Expect(pod.SecurityContext.FSGroup).To(BeNil())
+		Expect(pod.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeRuntimeDefault))
+		Expect(pod.Containers[0].SecurityContext.ProcMount).To(BeNil())
+		Expect(pod.ImagePullSecrets).To(BeEmpty())
+	})
+
 	It("rejects a pinned port outside the NodePort range", func() {
 		bad := &vdiv1alpha1.VdiInstance{
 			ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: testNS},

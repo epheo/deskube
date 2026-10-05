@@ -18,6 +18,7 @@ rules:
   resources:
   - persistentvolumeclaims
   - secrets
+  - serviceaccounts
   - services
   verbs:
   - create
@@ -39,6 +40,15 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - system:openshift:scc:nested-container
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+  - get
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:

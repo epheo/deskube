@@ -100,6 +100,15 @@ type VdiInstanceSpec struct {
 	Expose ExposeSpec `json:"expose,omitempty"`
 	// +optional
 	Stream StreamSpec `json:"stream,omitempty"`
+	// NestedSandboxes lets programs in the desktop build sandboxes of
+	// their own, as Steam, Flatpak, and container engines do. The pod
+	// then runs in its own user namespace with an unmasked /proc, and on
+	// OpenShift under the nested-container SCC. It still holds no
+	// capability, cannot gain any, and is not root in its namespace. What
+	// it gives up is the runtime's default seccomp filter, which forbids
+	// nested namespaces, unless the manager was given a profile to use.
+	// +optional
+	NestedSandboxes bool `json:"nestedSandboxes,omitempty"`
 }
 
 // VdiInstancePhase is a one word summary of the status conditions.
