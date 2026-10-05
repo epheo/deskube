@@ -112,6 +112,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(vm.Spec.DataVolumeTemplates[0].Annotations).To(HaveKeyWithValue("cdi.kubevirt.io/cloneType", "snapshot"))
 		Expect(vm.Spec.Template.Spec.Volumes[1].CloudInitNoCloud.UserDataSecretRef.Name).To(Equal("alice-cloudinit"))
 		Expect(vm.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue(labelInstance, "alice"))
+		Expect(vm.Spec.Template.Spec.Domain.Devices.Video.Type).To(Equal("virtio"))
 
 		svc := &corev1.Service{}
 		get("alice", svc)

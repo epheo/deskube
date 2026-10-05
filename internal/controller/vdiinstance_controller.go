@@ -293,6 +293,9 @@ func desiredVMSpec(
 			Spec: kubevirtv1.VirtualMachineInstanceSpec{
 				Domain: kubevirtv1.DomainSpec{
 					Devices: kubevirtv1.Devices{
+						// virtio-gpu gives the guest a KMS device with a full mode list;
+						// the EFI default is bochs.
+						Video: &kubevirtv1.VideoDevice{Type: "virtio"},
 						Disks: []kubevirtv1.Disk{virtioDisk("rootdisk"), virtioDisk("cloudinitdisk")},
 						// Masquerade with no port list forwards every port, UDP included.
 						Interfaces: []kubevirtv1.Interface{{
