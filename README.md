@@ -28,14 +28,14 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 ## Quick start
 
-1. Build and push the images:
+1. Build and push the operator image:
 
-       make desktop-build desktop-push CONTAINER_TOOL=podman
        make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:dev
 
-   `images/desktop-pod` is the desktop: sway, Sunshine, and the input
-   shim on the newest Fedora release. `images/desktop-pod-steam` adds
-   Steam and gamescope. `hack/pod` runs both with podman, no cluster.
+   The desktop images (sway, Sunshine and the input shim on the newest
+   Fedora release, plus a Steam variant) are built in the
+   [desku.be-images](../desku.be-images) repository; the operator only
+   knows them by name.
 
 2. Install the operator:
 
@@ -152,16 +152,17 @@ carries the kubelet's reason when a desktop does not start.
 
     make test                  # envtest
     make lint
-    hack/pod/e2e.sh            # headless Moonlight against a podman desktop
     hack/e2e-operator.sh       # VdiInstance + VdiPairing on a cluster
 
-Design notes: `docs/design.md`. By hand results: `hack/pod/README.md`.
+`hack/e2e-operator.sh` streams with the `moonlight-cli` image from
+desku.be-images. Design notes: `docs/design.md`; by hand results with
+podman, no cluster: the desku.be-images README.
 
 ## Known gaps
 
 - The operator does not hand a GPU to the pod yet; cluster desktops
   render and encode on the CPU. With podman the GPU path works.
-- The gaming image also needs a GPU, see the first gap.
+- The gaming images also need a GPU, see the first gap.
 - The pod's volume is group owned through OpenShift's fsGroup; plain
   Kubernetes needs one set.
 - A private registry needs a pull secret in every namespace that runs

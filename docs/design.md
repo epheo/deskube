@@ -15,7 +15,7 @@ Restarted 2026-09-23 on KubeVirt VMs, moved to pods only on 2026-10-05.
 ## What was proven
 
 - sway on the wlroots headless backend, Sunshine capturing it, in an
-  unprivileged container. `hack/pod/README.md` has the numbers.
+  unprivileged container. The desku.be-images README has the numbers.
 - With a GPU: wlr capture and VAAPI, 120 fps at 2560x1440 delivered.
 - Without one: the compositor draws on the CPU, capture goes through
   the screen cast portal, libx264 encodes, 60 fps at 1920x1080.

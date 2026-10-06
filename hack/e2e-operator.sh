@@ -2,7 +2,7 @@
 # Operator level proof: a VdiInstance becomes a desktop pod, a VdiPairing
 # carries the PIN, and a headless Moonlight receives video.
 # Needs the manager running (make run or a deployment) and the
-# moonlight-cli image from hack/moonlight-cli.
+# moonlight-cli image from the desku.be-images repository.
 set -euo pipefail
 NS=${NS:-deskube-dev}
 NAME=${NAME:-desk-op}
