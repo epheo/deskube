@@ -36,6 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
@@ -485,5 +486,79 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		dep := &appsv1.Deployment{}
 		get("alice", dep)
 		Expect(*dep.Spec.Replicas).To(Equal(int32(0)))
+	})
+
+	Context("next to Services DeskuBe does not own", Ordered, func() {
+		var raw, cacheLike client.WithWatch
+		reconcileErr := func(name string) error {
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: testNS}})
+			return err
+		}
+		desktop := func(name string, pinned int32) *vdiv1alpha1.VdiInstance {
+			vdi := &vdiv1alpha1.VdiInstance{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS},
+				Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, Expose: vdiv1alpha1.ExposeSpec{BasePort: pinned}},
+			}
+			Expect(k8sClient.Create(ctx, vdi)).To(Succeed())
+			return vdi
+		}
+
+		BeforeAll(func() {
+			var err error
+			raw, err = client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
+			Expect(err).NotTo(HaveOccurred())
+			// The manager's cache will hold DeskuBe's objects only: foreign
+			// Services must come from the API reader.
+			r.APIReader = k8sClient
+			cacheLike = interceptor.NewClient(raw, interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if _, ok := list.(*corev1.ServiceList); ok {
+						return errors.New("the cache holds no foreign Service")
+					}
+					return c.List(ctx, list, opts...)
+				},
+			})
+			r.Client = cacheLike
+			DeferCleanup(func() { r.Client, r.APIReader = k8sClient, nil })
+
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "elsewhere"}})).To(Succeed())
+			// Its node port is the control port of the first free window, 30144.
+			Expect(k8sClient.Create(ctx, &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "squatter", Namespace: "elsewhere"},
+				Spec: corev1.ServiceSpec{
+					Type:     corev1.ServiceTypeNodePort,
+					Selector: map[string]string{"app": "squatter"},
+					Ports:    []corev1.ServicePort{{Port: 80, NodePort: 30154}},
+				},
+			})).To(Succeed())
+		})
+
+		It("skips a window a foreign Service holds one port of", func() {
+			erin := desktop("erin", 0)
+			reconcile("erin")
+			get("erin", erin)
+			Expect(erin.Status.BasePort).To(Equal(int32(30176)))
+		})
+
+		It("refuses a pinned base whose ports another desktop or Service holds", func() {
+			// Off the grid: only its http port, 30026, is alice's control port.
+			gina := desktop("gina", 30026)
+			Expect(reconcileErr("gina")).To(HaveOccurred())
+			get("gina", gina)
+			Expect(gina.Status.Phase).To(Equal(vdiv1alpha1.PhaseFailed))
+			Expect(gina.Status.BasePort).To(BeZero())
+			cond := meta.FindStatusCondition(gina.Status.Conditions, ConditionNetworkReady)
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("PortConflict"))
+			Expect(cond.Message).To(Equal("basePort 30026 needs node port 30026, held by VdiInstance vdi-test/alice"))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "gina", Namespace: testNS}, &corev1.Service{})).NotTo(Succeed())
+
+			hank := desktop("hank", 30154)
+			Expect(reconcileErr("hank")).To(HaveOccurred())
+			get("hank", hank)
+			cond = meta.FindStatusCondition(hank.Status.Conditions, ConditionNetworkReady)
+			Expect(cond.Reason).To(Equal("PortConflict"))
+			Expect(cond.Message).To(HaveSuffix("held by Service elsewhere/squatter"))
+		})
 	})
 })

@@ -151,6 +151,13 @@ carries the kubelet's reason when a desktop does not start.
   TCP and UDP.
 - `LoadBalancer`: one IP per desktop, Moonlight's default port 47989.
 
+The operator skips any window where another desktop or any Service in
+the cluster holds one of the seven ports.
+`spec.expose.basePort` pins a window, on the 32 port grid or not.
+A pinned window that overlaps one already held is refused:
+NetworkReady is False, reason `PortConflict`, and the message names
+the holder.
+
 ## Development
 
     make test                  # envtest

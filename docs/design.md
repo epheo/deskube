@@ -95,6 +95,16 @@ base-5, base, base+1, base+9, base+10, base+11, base+21.
 Bases start at 30016 and step by 32, so 86 desktops fit one cluster.
 LoadBalancer exposure uses base 47989 and one IP per desktop.
 
+A window is free only when none of its seven ports is held by another
+desktop, allocated or pinned, or is any Service's NodePort.
+The manager lists Services cluster wide past its cache, at allocation
+only: its cache holds DeskuBe's objects alone.
+A pinned base need not sit on the grid, so it is checked port by port.
+It yields only to windows already allocated: two equal pins would
+otherwise refuse each other forever. The first one keeps the window.
+A refused pin reports NetworkReady False, reason PortConflict, naming
+the holder.
+
 ## Order of work
 
 1. Done: VdiInstance as a pod, pairing, owner RBAC, idle shutdown.

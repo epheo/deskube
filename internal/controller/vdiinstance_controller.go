@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -82,7 +83,8 @@ type VdiInstanceReconciler struct {
 	ProbeExternal bool
 	Probe         ProbeFunc
 	// APIReader reads without the cache: the manager may get one
-	// ClusterRole by name, not list and watch them all.
+	// ClusterRole by name, not list and watch them all, and port
+	// allocation must see every Service in the cluster, fresh.
 	APIReader client.Reader
 	// SandboxSeccompProfile names a seccomp profile already on the
 	// nodes, relative to the kubelet's seccomp directory, for sandbox
@@ -128,7 +130,11 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	if vdi.Status.BasePort == 0 {
 		base, err := r.chooseBasePort(ctx, vdi)
 		if err != nil {
-			return r.fail(ctx, vdi, ConditionNetworkReady, "PortAllocation", err)
+			reason := "PortAllocation"
+			if _, ok := errors.AsType[*portConflictError](err); ok {
+				reason = "PortConflict"
+			}
+			return r.fail(ctx, vdi, ConditionNetworkReady, reason, err)
 		}
 		vdi.Status.BasePort = base
 		vdi.Status.Phase = vdiv1alpha1.PhaseProvisioning
@@ -188,30 +194,74 @@ func (r *VdiInstanceReconciler) chooseBasePort(ctx context.Context, vdi *vdiv1al
 		}
 		return loadBalancerBasePort, nil
 	}
-	if pinned := vdi.Spec.Expose.BasePort; pinned != 0 {
-		if !nodePortBaseValid(pinned) {
-			return 0, fmt.Errorf("basePort %d leaves the NodePort range %d-%d", pinned, nodePortMin, nodePortMax)
-		}
-		return pinned, nil
+	pinned := vdi.Spec.Expose.BasePort
+	if pinned != 0 && !nodePortBaseValid(pinned) {
+		return 0, fmt.Errorf("basePort %d leaves the NodePort range %d-%d", pinned, nodePortMin, nodePortMax)
 	}
-	all := &vdiv1alpha1.VdiInstanceList{}
-	if err := r.List(ctx, all); err != nil {
+	// Two desktops pinned to one window would refuse each other forever
+	// if pins counted here; the first to hold it keeps it.
+	held, err := r.heldNodePorts(ctx, vdi, pinned == 0)
+	if err != nil {
 		return 0, err
 	}
-	used := map[int32]bool{}
-	for i := range all.Items {
-		other := &all.Items[i]
-		if other.UID == vdi.UID {
+	if pinned == 0 {
+		return allocateNodePortBase(held)
+	}
+	if port, holder, taken := held.conflict(pinned); taken {
+		return 0, &portConflictError{base: pinned, port: port, holder: holder}
+	}
+	return pinned, nil
+}
+
+// heldNodePorts lists the node ports other desktops hold or, with pins,
+// have asked for, and those any Service in the cluster holds. Both are
+// read uncached: allocation is rare, a stale read hands out a window
+// twice, and the cache does not carry foreign Services.
+func (r *VdiInstanceReconciler) heldNodePorts(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, pins bool,
+) (heldPorts, error) {
+	held := heldPorts{}
+	desktops := &vdiv1alpha1.VdiInstanceList{}
+	if err := r.reader().List(ctx, desktops); err != nil {
+		return nil, err
+	}
+	for i := range desktops.Items {
+		other := &desktops.Items[i]
+		if other.UID == vdi.UID || other.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 			continue
 		}
+		holder := "VdiInstance " + other.Namespace + "/" + other.Name
 		if other.Status.BasePort != 0 {
-			used[other.Status.BasePort] = true
+			held.holdWindow(other.Status.BasePort, holder)
 		}
-		if other.Spec.Expose.BasePort != 0 {
-			used[other.Spec.Expose.BasePort] = true
+		if pins && other.Spec.Expose.BasePort != 0 {
+			held.holdWindow(other.Spec.Expose.BasePort, holder)
 		}
 	}
-	return allocateNodePortBase(used)
+	services := &corev1.ServiceList{}
+	if err := r.reader().List(ctx, services); err != nil {
+		return nil, err
+	}
+	for i := range services.Items {
+		svc := &services.Items[i]
+		if metav1.IsControlledBy(svc, vdi) {
+			continue
+		}
+		for _, p := range svc.Spec.Ports {
+			if p.NodePort != 0 {
+				held.hold(p.NodePort, "Service "+svc.Namespace+"/"+svc.Name)
+			}
+		}
+	}
+	return held, nil
+}
+
+// reader reads past the cache.
+func (r *VdiInstanceReconciler) reader() client.Reader {
+	if r.APIReader == nil {
+		return r.Client
+	}
+	return r.APIReader
 }
 
 func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
@@ -286,11 +336,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 		return nil, err
 	}
 
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
-	err := reader.Get(ctx, client.ObjectKey{Name: nestedSCCRole}, &rbacv1.ClusterRole{})
+	err := r.reader().Get(ctx, client.ObjectKey{Name: nestedSCCRole}, &rbacv1.ClusterRole{})
 	switch {
 	case apierrors.IsNotFound(err):
 		// Not OpenShift: Pod Security Admission decides, nothing to bind.

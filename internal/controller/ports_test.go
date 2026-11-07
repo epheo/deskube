@@ -23,10 +23,10 @@ import (
 )
 
 func TestAllocateNodePortBase(t *testing.T) {
-	used := map[int32]bool{}
+	held := heldPorts{}
 	var bases []int32
 	for {
-		b, err := allocateNodePortBase(used)
+		b, err := allocateNodePortBase(held)
 		if err != nil {
 			break
 		}
@@ -39,7 +39,7 @@ func TestAllocateNodePortBase(t *testing.T) {
 			}
 		}
 		bases = append(bases, b)
-		used[b] = true
+		held.holdWindow(b, "VdiInstance ns/d")
 	}
 	if len(bases) != 86 {
 		t.Fatalf("expected 86 windows in the NodePort range, got %d", len(bases))
@@ -49,10 +49,35 @@ func TestAllocateNodePortBase(t *testing.T) {
 	}
 }
 
-func TestAllocateSkipsUsed(t *testing.T) {
-	b, err := allocateNodePortBase(map[int32]bool{30016: true})
-	if err != nil || b != 30048 {
-		t.Fatalf("got %d, %v; want 30048", b, err)
+func TestAllocateSkipsHeldPorts(t *testing.T) {
+	for _, tc := range []struct {
+		held int32
+		want int32
+	}{
+		{30011, 30048}, // https of the first window
+		{30017, 30048}, // web, held even when the desktop does not publish it
+		{30037, 30048}, // rtsp
+		{30020, 30016}, // between the window's ports, not one of them
+		{30043, 30016}, // the next window's https
+	} {
+		b, err := allocateNodePortBase(heldPorts{tc.held: "Service ns/s"})
+		if err != nil || b != tc.want {
+			t.Errorf("port %d held: got %d, %v; want %d", tc.held, b, err, tc.want)
+		}
+	}
+}
+
+func TestOffGridWindowConflict(t *testing.T) {
+	held := heldPorts{}
+	held.holdWindow(30016, "VdiInstance ns/alice")
+	held.hold(30026, "Service ns/late")
+	// Base 30026 is off the grid; its http port is alice's control port.
+	port, holder, taken := held.conflict(30026)
+	if !taken || port != 30026 || holder != "VdiInstance ns/alice" {
+		t.Fatalf("got %d %q %v", port, holder, taken)
+	}
+	if _, _, taken := held.conflict(30048); taken {
+		t.Fatal("30048 shares no port with 30016")
 	}
 }
 

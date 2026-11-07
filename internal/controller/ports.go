@@ -18,6 +18,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/epheo/deskube/internal/sunshine"
 )
@@ -33,14 +34,53 @@ const (
 	loadBalancerBasePort = 47989
 )
 
-// allocateNodePortBase returns the lowest free base in the NodePort range.
-func allocateNodePortBase(used map[int32]bool) (int32, error) {
+// heldPorts maps a node port to what holds it, as "Kind namespace/name".
+type heldPorts map[int32]string
+
+// hold keeps the first holder: a desktop is marked before its Service,
+// and its name says more.
+func (h heldPorts) hold(port int32, holder string) {
+	if _, ok := h[port]; !ok {
+		h[port] = holder
+	}
+}
+
+func (h heldPorts) holdWindow(base int32, holder string) {
+	for _, p := range sunshine.Ports {
+		h.hold(base+p.Offset, holder)
+	}
+}
+
+// conflict returns the first held port of the window on base. The web
+// port counts even while unpublished, so turning the web UI on later
+// cannot collide.
+func (h heldPorts) conflict(base int32) (port int32, holder string, found bool) {
+	for _, p := range sunshine.Ports {
+		if holder, ok := h[base+p.Offset]; ok {
+			return base + p.Offset, holder, true
+		}
+	}
+	return 0, "", false
+}
+
+// allocateNodePortBase returns the lowest base whose window is free.
+func allocateNodePortBase(held heldPorts) (int32, error) {
 	for base := int32(firstNodePortBase); base+sunshine.OffsetRTSP <= nodePortMax; base += basePortStep {
-		if !used[base] {
+		if _, _, taken := held.conflict(base); !taken {
 			return base, nil
 		}
 	}
 	return 0, errors.New("no free base port left in the NodePort range")
+}
+
+// portConflictError names what holds a port a pinned base needs.
+type portConflictError struct {
+	base, port int32
+	holder     string
+}
+
+func (e *portConflictError) Error() string {
+	return fmt.Sprintf("basePort %d needs node port %d, held by %s", e.base, e.port, e.holder)
 }
 
 // nodePortBaseValid reports whether every derived port fits the NodePort range.
