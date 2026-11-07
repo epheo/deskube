@@ -72,7 +72,9 @@ type StreamSpec struct {
 	// +kubebuilder:validation:Enum=software;vaapi
 	// +optional
 	Encoder string `json:"encoder,omitempty"`
-	// KeyboardLayout is an XKB layout name, us when empty.
+	// KeyboardLayout is up to four XKB layout names separated by commas,
+	// us when empty. Variants and options are not accepted.
+	// +kubebuilder:validation:Pattern=`^[a-z]{2,8}(,[a-z]{2,8}){0,3}$`
 	// +optional
 	KeyboardLayout string `json:"keyboardLayout,omitempty"`
 }

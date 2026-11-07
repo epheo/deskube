@@ -489,6 +489,20 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(bad.Status.Phase).To(Equal(vdiv1alpha1.PhaseFailed))
 	})
 
+	It("takes a keyboard layout only as XKB layout names", func() {
+		create := func(layout string) error {
+			return k8sClient.Create(ctx, &vdiv1alpha1.VdiInstance{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "layout-", Namespace: testNS},
+				Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, Stream: vdiv1alpha1.StreamSpec{KeyboardLayout: layout}},
+			}, client.DryRunAll)
+		}
+		Expect(create("fr")).To(Succeed())
+		Expect(create("us,de,ru,ara")).To(Succeed())
+		for _, bad := range []string{"us(intl)", "US", "us,", "us de", "us,de,fr,ru,ara", "us;reboot"} {
+			Expect(apierrors.IsInvalid(create(bad))).To(BeTrue(), bad)
+		}
+	})
+
 	It("scales to zero when running is false and keeps the home", func() {
 		vdi := &vdiv1alpha1.VdiInstance{}
 		get("alice", vdi)
