@@ -17,7 +17,7 @@ behalf.
                 ──> Secret (Sunshine admin password)
                 ──> Role + RoleBinding for the owner
 
-    VdiPairing  ──> POST /api/pin on the desktop's Sunshine web UI
+The PIN in `spec.pairing` goes to Sunshine's admin API on the pod IP.
 
 Sunshine runs in the pod on a base port the operator allocates.
 Every other port is derived from it, and RTSP tells Moonlight the UDP
@@ -67,15 +67,14 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
        alice-desk   Ready   203.0.113.10:30016    free      alice
 
 5. In Moonlight, add the host `203.0.113.10:30016`. It shows a PIN.
-   Hand the PIN to the operator:
+   As the owner, write it on the desktop:
 
-       apiVersion: vdi.desku.be/v1alpha1
-       kind: VdiPairing
-       metadata:
-         name: alice-laptop
-       spec:
-         instanceRef: alice-desk
-         pin: "4693"
+       oc patch vdiinstance alice-desk --type=merge \
+         -p '{"spec":{"pairing":{"pin":"4693","clientName":"laptop"}}}'
+
+   The operator approves the waiting client, reports in
+   `status.pairing`, and removes `spec.pairing`.
+   A PIN not used within ten minutes fails, as Moonlight's request does.
 
 6. Moonlight lists `Desktop`. Connect.
 
@@ -86,6 +85,22 @@ the session ends.
 `spec.running: false` removes the pod and keeps the home.
 `spec.idleTimeout: 30m` does that after half an hour without a session;
 the operator flips `running` to false, set it back to true to resume.
+
+## Owners
+
+`spec.owner` names a Kubernetes user.
+The operator gives that user a Role in the namespace: read every
+desktop there, update and patch their own, and read its admin Secret
+while `spec.expose.webUI` is on.
+
+RBAC cannot tell one field from another.
+A ValidatingAdmissionPolicy from `config/policy`, installed by
+`make deploy`, narrows the writes.
+Whoever may not create desktops in the namespace may change only
+`spec.running` and `spec.pairing`.
+Every other field, and the finalizers, stay with admins: whoever may
+create desktops there, the manager included.
+The policy needs Kubernetes 1.30 or later, OpenShift 4.17 or later.
 
 ## Limits per desktop
 
@@ -125,8 +140,8 @@ container without capabilities by `hack/seccomp/flatten.py`.
 
 `console/` is an OpenShift console dynamic plugin. It adds a
 **Virtual Desktops** page: list, create, start, stop, delete, and pair
-Moonlight through a VdiPairing. Owners see their namespace; admins see
-all.
+Moonlight by writing the PIN on the desktop. Owners see their
+namespace; admins see all.
 
     make console-deploy
 
@@ -144,6 +159,8 @@ Conditions: PodReady, NetworkReady, StreamingReady, Ready. PodReady
 carries the kubelet's reason when a desktop does not start.
 `status.sessionState` is `free` or `busy`, read from Sunshine.
 `status.lastActive` is the last time a session was seen.
+`status.pairing` is the last pairing request: its PIN, Pending, Paired
+or Failed, and why.
 
 ## Exposure
 
@@ -173,7 +190,7 @@ address that arrives later.
 
     make test                  # envtest
     make lint
-    hack/e2e-operator.sh       # VdiInstance + VdiPairing on a cluster
+    hack/e2e-operator.sh       # a desktop, pairing, a stream, on a cluster
 
 `hack/e2e-operator.sh` streams with the `moonlight-cli` image from
 desku.be-images. Design notes: `docs/design.md`; by hand results with
@@ -189,7 +206,9 @@ podman, no cluster: the desku.be-images README.
 - A private registry needs a pull secret in every namespace that runs
   desktops, linked to its default service account or named in
   `spec.imagePullSecrets`.
-- A VdiPairing with the right PIN approves whatever client is waiting.
+- A PIN approves the first waiting client Sunshine accepts it for.
+  Owners who share a namespace can read each other's pending PIN; one
+  could race the owner's Moonlight with a client that sends it.
 
 ## License
 

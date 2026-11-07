@@ -50,6 +50,7 @@ One desktop for one owner.
       expose:      {type: NodePort | LoadBalancer, basePort, host, webUI}
       stream:      {encoder: software | vaapi, keyboardLayout}
       nestedSandboxes: false                    let Steam, Flatpak, podman sandbox themselves
+      pairing:     {pin: "4693", clientName}     the PIN Moonlight shows; removed once handled
 
     status:
       phase:        Provisioning | Starting | Ready | Stopping | Stopped | Failed
@@ -58,6 +59,7 @@ One desktop for one owner.
       adminSecret:  <name>-sunshine-admin
       sessionState: free | busy                  from /serverinfo
       lastActive:   time                         busy seen, or became Ready
+      pairing:      {pin, phase: Pending | Paired | Failed, message, requestedAt, pairedAt}
       conditions:   PodReady, StreamingReady, NetworkReady, Ready
 
 The controller owns, per instance:
@@ -67,26 +69,50 @@ The controller owns, per instance:
 - a Deployment with one replica, zero when stopped, strategy Recreate
   because the home and the ports belong to one pod at a time,
 - a Service with six ports, the web UI port only with `expose.webUI`,
-- a Role and RoleBinding for the owner.
+- a Role and RoleBinding for the owner: read the namespace's desktops,
+  update and patch this one, and get the admin Secret while
+  `expose.webUI` is on.
 
 The pod gets no service account token, drops every capability, and
 runs under the default seccomp profile. Its readiness probe is
 Sunshine's `/serverinfo`.
 
-### VdiPairing
+### Pairing
 
-The PIN Moonlight shows, handed to the operator instead of the desktop.
+The owner writes the PIN Moonlight shows into `spec.pairing` of their
+own desktop.
+RBAC by resourceName already keeps it there; the VdiPairing it replaces
+let any owner pair with any desktop in a shared namespace.
 
-    spec:
-      instanceRef: alice-desk
-      pin: "4693"
-      clientName: laptop
-    status:
-      phase: Pending | Paired | Failed
+While the desktop is Ready, the controller lists pending requests with
+`GET /api/pin` on the pod IP and submits the PIN to each with
+`POST /api/pin`.
+The first one Sunshine accepts is paired.
+Ten minutes after `status.pairing.requestedAt` the request fails, as
+Moonlight's own does.
 
-The controller reads the admin Secret, lists pending pairings on the
-instance's web port through the ClusterIP, and approves the one that
-matches.
+The outcome goes to `status.pairing` by merge patch, after the rest of
+the status: a conflict there cannot lose an approval Sunshine accepted.
+A JSON patch then removes `spec.pairing` after testing the PIN, so a
+newer PIN written meanwhile stays.
+`status.pairing.pin` tells a new request from a final one whose removal
+failed, and tells the console which PIN an outcome answers.
+
+### What an owner may change
+
+RBAC grants update by object, not by field.
+Without more, an owner could set `image` and `nestedSandboxes` and run
+anything under the nested-container SCC.
+A ValidatingAdmissionPolicy in `config/policy` applies to updates of
+VdiInstances by whoever may not create one in the namespace, asked of
+CEL's `authorizer`.
+They may change `spec.running` and `spec.pairing`; every other spec
+field and `metadata.finalizers` must stay as they were.
+Admins and the manager can create, so the policy skips them.
+The policy compares each spec field by name.
+A unit test fails when a field of VdiInstanceSpec is neither compared
+nor listed as owner mutable.
+ValidatingAdmissionPolicy v1 needs Kubernetes 1.30.
 
 ## Port allocation
 
