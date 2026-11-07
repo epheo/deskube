@@ -1,0 +1,5 @@
+# kustomize 5.4 does not know these two are cluster scoped and stamps a
+# namespace on them; the API server drops it.
+resources:
+- vdiinstance_owner_fields.yaml
+- vdiinstance_owner_fields_binding.yaml

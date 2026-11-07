@@ -574,7 +574,9 @@ func servicePorts(base int32, pinNodePorts, web bool) []corev1.ServicePort {
 }
 
 // ensureOwnerRBAC lets the owner read the instance, write to it, and read
-// the admin credentials for the Sunshine web UI.
+// the admin credentials for the Sunshine web UI. RBAC cannot tell one
+// field from another: config/policy narrows the writes to running and
+// pairing.
 func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	name := vdi.Name + "-owner"
 	if vdi.Spec.Owner == "" {

@@ -1,0 +1,57 @@
+# Owners hold update and patch on their own desktop through RBAC, which
+# cannot tell one field from another. Whoever may not create desktops in
+# the namespace may only start, stop and pair the ones they can write.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: vdiinstance-owner-fields
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["vdi.desku.be"]
+      apiVersions: ["*"]
+      operations: ["UPDATE"]
+      resources: ["vdiinstances"]
+  matchConditions:
+  - name: requester-cannot-create
+    expression: >-
+      !authorizer.group('vdi.desku.be').resource('vdiinstances')
+      .namespace(request.namespace).check('create').allowed()
+  # One entry per spec field but running and pairing.
+  # internal/controller/policy_test.go fails on a field left out.
+  validations:
+  - expression: object.spec.?image == oldObject.spec.?image
+    message: only an admin may change spec.image
+    reason: Forbidden
+  - expression: object.spec.?imagePullPolicy == oldObject.spec.?imagePullPolicy
+    message: only an admin may change spec.imagePullPolicy
+    reason: Forbidden
+  - expression: object.spec.?imagePullSecrets == oldObject.spec.?imagePullSecrets
+    message: only an admin may change spec.imagePullSecrets
+    reason: Forbidden
+  - expression: object.spec.?resources == oldObject.spec.?resources
+    message: only an admin may change spec.resources
+    reason: Forbidden
+  - expression: object.spec.?home == oldObject.spec.?home
+    message: only an admin may change spec.home
+    reason: Forbidden
+  - expression: object.spec.?owner == oldObject.spec.?owner
+    message: only an admin may change spec.owner
+    reason: Forbidden
+  - expression: object.spec.?idleTimeout == oldObject.spec.?idleTimeout
+    message: only an admin may change spec.idleTimeout
+    reason: Forbidden
+  - expression: object.spec.?expose == oldObject.spec.?expose
+    message: only an admin may change spec.expose
+    reason: Forbidden
+  - expression: object.spec.?stream == oldObject.spec.?stream
+    message: only an admin may change spec.stream
+    reason: Forbidden
+  - expression: object.spec.?nestedSandboxes == oldObject.spec.?nestedSandboxes
+    message: only an admin may change spec.nestedSandboxes
+    reason: Forbidden
+  # A finalizer would let an owner hold their desktop against deletion.
+  - expression: object.metadata.?finalizers == oldObject.metadata.?finalizers
+    message: only an admin may change metadata.finalizers
+    reason: Forbidden
