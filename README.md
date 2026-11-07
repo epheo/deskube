@@ -13,7 +13,7 @@ behalf.
 
     VdiInstance ──> Deployment (one desktop pod, or none when stopped)
                 ──> PersistentVolumeClaim (the home)
-                ──> Service (7 ports, NodePort or LoadBalancer)
+                ──> Service (6 ports, 7 with the web UI; NodePort or LoadBalancer)
                 ──> Secret (Sunshine admin password)
                 ──> Role + RoleBinding for the owner
 
@@ -44,7 +44,8 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
    `make run`, or `go run ./cmd/main.go --probe-external`, runs it
    outside the cluster; it then probes desktops through the client
-   address instead of the pod IP.
+   address instead of the pod IP, and every desktop publishes its web
+   UI port. For development only.
 
 3. Create a desktop:
 
@@ -157,6 +158,16 @@ the cluster holds one of the seven ports.
 A pinned window that overlaps one already held is refused:
 NetworkReady is False, reason `PortConflict`, and the message names
 the holder.
+
+Sunshine's admin web UI, on base+1, stays off the Service by default.
+The operator reaches Sunshine on the pod IP and needs no port for it.
+`spec.expose.webUI: true` publishes the web UI and lets it answer any
+address; without it, private addresses only.
+Changing `webUI` restarts the desktop.
+Behind a LoadBalancer the web UI also needs `spec.expose.host`, set to
+the address browsers use: Sunshine refuses changes from an origin it
+was not started with, and the operator never restarts a desktop for an
+address that arrives later.
 
 ## Development
 

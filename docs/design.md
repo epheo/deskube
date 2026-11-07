@@ -47,7 +47,7 @@ One desktop for one owner.
       owner:       alice                         Kubernetes user, gets RBAC on this object
       running:     true                          power state, idle shutdown flips it
       idleTimeout: 30m                           optional
-      expose:      {type: NodePort | LoadBalancer, basePort, host}
+      expose:      {type: NodePort | LoadBalancer, basePort, host, webUI}
       stream:      {encoder: software | vaapi, keyboardLayout}
       nestedSandboxes: false                    let Steam, Flatpak, podman sandbox themselves
 
@@ -66,7 +66,7 @@ The controller owns, per instance:
 - a PersistentVolumeClaim for the home, kept while the desktop is stopped,
 - a Deployment with one replica, zero when stopped, strategy Recreate
   because the home and the ports belong to one pod at a time,
-- a Service with the seven ports,
+- a Service with six ports, the web UI port only with `expose.webUI`,
 - a Role and RoleBinding for the owner.
 
 The pod gets no service account token, drops every capability, and
@@ -111,6 +111,27 @@ does not exist yet drops its window: an unpinned one takes the next
 free window, a pinned one reports PortConflict.
 A Service that exists keeps its window even then: a stale cache makes
 the manager create it again, and its own ports read as taken.
+
+## The web UI
+
+Sunshine's admin web UI can change anything in the desktop, so it is
+not published by default.
+The manager reaches /serverinfo and the admin API on the pod IP, and
+needs no port on the Service for them.
+`expose.webUI` publishes the web port and passes
+DESKUBE_WEB_UI_ALLOWED=wan; otherwise the value is lan.
+desk-session writes it to Sunshine's origin_web_ui_allowed. Pod IPs
+count as lan for Sunshine, so the manager gets in either way.
+The window keeps the web port while it is unpublished, so turning
+webUI on never collides.
+A manager run with --probe-external cannot route to pods. It uses the
+client address, and every Service keeps the web port. Dev only.
+
+Changing env restarts the desktop, so changing webUI does too.
+The operator never changes env for an address that arrives later, like
+a LoadBalancer IP. Sunshine only accepts web UI changes from origins it
+was started with, so the web UI behind a LoadBalancer needs
+`expose.host`.
 
 ## Order of work
 

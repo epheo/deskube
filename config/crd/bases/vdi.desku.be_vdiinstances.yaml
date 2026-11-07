@@ -77,6 +77,13 @@ spec:
                     - NodePort
                     - LoadBalancer
                     type: string
+                  webUI:
+                    description: |-
+                      WebUI publishes Sunshine's admin web UI, on base+1, and lets it
+                      answer any address instead of private ones only. Changing it
+                      restarts the desktop. Behind a LoadBalancer the web UI also needs
+                      host: it refuses changes from an address it was not started with.
+                    type: boolean
                 type: object
               home:
                 description: |-

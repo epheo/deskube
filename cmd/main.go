@@ -77,7 +77,8 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	var probeExternal bool
 	flag.BoolVar(&probeExternal, "probe-external", false,
-		"Reach Sunshine through the client address instead of the pod IP, for a manager outside the cluster.")
+		"Reach Sunshine through the client address instead of the pod IP, for a manager outside the cluster. "+
+			"Dev only: every desktop's Service then publishes its web UI port, webUI or not.")
 	var sandboxSeccompProfile string
 	flag.StringVar(&sandboxSeccompProfile, "sandbox-seccomp-profile", "",
 		"Seccomp profile already on the nodes, relative to the kubelet's seccomp directory, for desktops with "+
@@ -86,6 +87,10 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	if probeExternal {
+		setupLog.Info("probe-external: reaching desktops through their client address; " +
+			"every desktop's Service publishes its web UI port")
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

@@ -170,6 +170,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(env["DESKUBE_KEYBOARD_LAYOUT"].Value).To(Equal("fr"))
 		Expect(env["DESKUBE_ADMIN_PASSWORD"].ValueFrom.SecretKeyRef.Name).To(Equal("alice-sunshine-admin"))
 		Expect(env["DESKUBE_HOST_IP"].ValueFrom.FieldRef.FieldPath).To(Equal("status.hostIP"))
+		Expect(env["DESKUBE_WEB_UI_ALLOWED"].Value).To(Equal("lan"))
 		Expect(env).NotTo(HaveKey("DESKUBE_ENCODER"))
 		Expect(env).NotTo(HaveKey("DESKUBE_WEB_ORIGINS"))
 
@@ -177,9 +178,10 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		get("alice", svc)
 		Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeNodePort))
 		Expect(svc.Spec.Selector).To(HaveKeyWithValue(labelInstance, "alice"))
-		Expect(svc.Spec.Ports).To(HaveLen(7))
+		Expect(svc.Spec.Ports).To(HaveLen(6))
 		for _, p := range svc.Spec.Ports {
 			Expect(p.NodePort).To(Equal(p.Port))
+			Expect(p.Name).NotTo(Equal("web"))
 		}
 
 		role := &rbacv1.Role{}
@@ -243,6 +245,53 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(c.Env).To(ContainElement(corev1.EnvVar{Name: "DESKUBE_ENCODER", Value: "vaapi"}))
 		get("alice", vdi)
 		Expect(vdi.Status.Address).To(Equal("desk.example.org:30016"))
+	})
+
+	It("publishes the web UI only when asked, or for a manager outside the cluster", func() {
+		webPort := func() (int32, string) {
+			svc := &corev1.Service{}
+			get("alice", svc)
+			var nodePort int32
+			for _, p := range svc.Spec.Ports {
+				if p.Name == "web" {
+					nodePort = p.NodePort
+				}
+			}
+			dep := &appsv1.Deployment{}
+			get("alice", dep)
+			for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+				if e.Name == "DESKUBE_WEB_UI_ALLOWED" {
+					return nodePort, e.Value
+				}
+			}
+			return nodePort, ""
+		}
+		vdi := &vdiv1alpha1.VdiInstance{}
+		get("alice", vdi)
+		vdi.Spec.Expose.WebUI = true
+		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
+		reconcile("alice")
+		port, allowed := webPort()
+		Expect(port).To(Equal(int32(30017)))
+		Expect(allowed).To(Equal("wan"))
+
+		get("alice", vdi)
+		vdi.Spec.Expose.WebUI = false
+		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
+		reconcile("alice")
+		port, allowed = webPort()
+		Expect(port).To(BeZero())
+		Expect(allowed).To(Equal("lan"))
+
+		r.ProbeExternal = true
+		reconcile("alice")
+		r.ProbeExternal = false
+		port, allowed = webPort()
+		Expect(port).To(Equal(int32(30017)))
+		Expect(allowed).To(Equal("lan"))
+		reconcile("alice")
+		port, _ = webPort()
+		Expect(port).To(BeZero())
 	})
 
 	It("gives the next instance the next window", func() {

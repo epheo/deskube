@@ -106,10 +106,15 @@ func TestSunshineHost(t *testing.T) {
 }
 
 func TestServicePorts(t *testing.T) {
-	ports := servicePorts(31989, true)
+	ports := servicePorts(31989, true, true)
 	want := map[string]int32{"https": 31984, "http": 31989, "web": 31990, "video": 31998, "control": 31999, "audio": 32000, "rtsp": 32010}
 	if len(ports) != len(want) {
 		t.Fatalf("got %d ports, want %d", len(ports), len(want))
+	}
+	for _, p := range servicePorts(31989, true, false) {
+		if p.Name == "web" {
+			t.Error("web port published without the web UI")
+		}
 	}
 	for _, p := range ports {
 		if want[p.Name] != p.Port || p.NodePort != p.Port || p.TargetPort.IntVal != p.Port {
@@ -120,7 +125,7 @@ func TestServicePorts(t *testing.T) {
 			t.Errorf("port %s protocol %s", p.Name, p.Protocol)
 		}
 	}
-	for _, p := range servicePorts(47989, false) {
+	for _, p := range servicePorts(47989, false, true) {
 		if p.NodePort != 0 {
 			t.Errorf("load balancer port %s should not pin a node port", p.Name)
 		}

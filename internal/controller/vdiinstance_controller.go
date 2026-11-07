@@ -485,6 +485,8 @@ func fillPodSpec(
 		{Name: "DESKUBE_HOST_IP", ValueFrom: &corev1.EnvVarSource{
 			FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "status.hostIP"},
 		}},
+		// Sunshine counts pod IPs as lan, so lan still lets the manager in.
+		{Name: "DESKUBE_WEB_UI_ALLOWED", Value: webUIAllowed(vdi)},
 	}
 	if host := vdi.Spec.Expose.Host; host != "" {
 		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_WEB_ORIGINS", Value: "https://" + net.JoinHostPort(host, web)})
@@ -534,7 +536,9 @@ func (r *VdiInstanceReconciler) ensureService(
 		if vdi.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 			svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 		}
-		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort)
+		// A manager outside the cluster reaches the admin API through the Service.
+		web := vdi.Spec.Expose.WebUI || r.ProbeExternal
+		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort, web)
 		return controllerutil.SetControllerReference(vdi, svc, r.Scheme)
 	})
 	return svc, err
@@ -542,9 +546,12 @@ func (r *VdiInstanceReconciler) ensureService(
 
 // servicePorts maps each Sunshine port 1:1, so the desktop and the
 // outside agree on the numbers RTSP advertises.
-func servicePorts(base int32, pinNodePorts bool) []corev1.ServicePort {
+func servicePorts(base int32, pinNodePorts, web bool) []corev1.ServicePort {
 	ports := make([]corev1.ServicePort, 0, len(sunshine.Ports))
 	for _, p := range sunshine.Ports {
+		if p.Offset == sunshine.OffsetWeb && !web {
+			continue
+		}
 		n := base + p.Offset
 		sp := corev1.ServicePort{
 			Name:       p.Name,
@@ -906,6 +913,14 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// webUIAllowed is what desk-session writes to Sunshine's origin_web_ui_allowed.
+func webUIAllowed(vdi *vdiv1alpha1.VdiInstance) string {
+	if vdi.Spec.Expose.WebUI {
+		return "wan"
+	}
+	return "lan"
 }
 
 func adminSecretName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-sunshine-admin" }
