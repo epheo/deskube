@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -68,6 +69,15 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	// OpenShift's values for single node clusters: a loaded node renews late.
+	// controller-runtime's 15s, 10s and 2s made the manager exit on 2026-10-31.
+	var leaseDuration, renewDeadline, retryPeriod time.Duration
+	flag.DurationVar(&leaseDuration, "leader-elect-lease-duration", 137*time.Second,
+		"How long a candidate waits before taking a lease the leader stopped renewing.")
+	flag.DurationVar(&renewDeadline, "leader-elect-renew-deadline", 107*time.Second,
+		"How long the leader keeps retrying a renewal before it gives up and exits.")
+	flag.DurationVar(&retryPeriod, "leader-elect-retry-period", 26*time.Second,
+		"How long to wait between attempts to take or renew the lease.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
@@ -144,17 +154,12 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "1e73960d.desku.be",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:          &leaseDuration,
+		RenewDeadline:          &renewDeadline,
+		RetryPeriod:            &retryPeriod,
+		// A rollout would otherwise wait out the lease.
+		// Safe only because the process exits as soon as the manager stops.
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
