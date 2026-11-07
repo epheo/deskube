@@ -134,6 +134,7 @@ func (r *VdiInstanceReconciler) ensureManagedProfile(ctx context.Context, namesp
 	case apierrors.IsNotFound(err):
 		profile.SetName(sandboxProfileName)
 		profile.SetNamespace(namespace)
+		labelManaged(profile, "")
 		profile.SetAnnotations(map[string]string{profileHashKey: hash})
 		profile.Object["spec"] = spec
 		return "", false, r.Create(ctx, profile)
@@ -142,6 +143,7 @@ func (r *VdiInstanceReconciler) ensureManagedProfile(ctx context.Context, namesp
 	}
 	// The hash, not the spec, decides: the API server may add defaults.
 	if profile.GetAnnotations()[profileHashKey] != hash {
+		labelManaged(profile, "")
 		annotations := profile.GetAnnotations()
 		if annotations == nil {
 			annotations = map[string]string{}
@@ -150,6 +152,13 @@ func (r *VdiInstanceReconciler) ensureManagedProfile(ctx context.Context, namesp
 		profile.SetAnnotations(annotations)
 		profile.Object["spec"] = spec
 		return "", false, r.Update(ctx, profile)
+	}
+	if profile.GetLabels()[labelManagedBy] != managedBy {
+		// An older manager made it unlabeled; its spec is still current.
+		labelManaged(profile, "")
+		if err := r.Update(ctx, profile); err != nil {
+			return "", false, err
+		}
 	}
 	state, _, _ := unstructured.NestedString(profile.Object, "status", "status")
 	path, _, _ := unstructured.NestedString(profile.Object, "status", "localhostProfile")

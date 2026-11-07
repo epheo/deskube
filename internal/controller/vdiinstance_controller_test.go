@@ -65,6 +65,12 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 	get := func(name string, obj client.Object) {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: testNS}, obj)).To(Succeed())
 	}
+	expectLabeled := func(instance string, objs ...client.Object) {
+		for _, obj := range objs {
+			Expect(obj.GetLabels()).To(HaveKeyWithValue(labelManagedBy, managedBy), obj.GetName())
+			Expect(obj.GetLabels()).To(HaveKeyWithValue(labelInstance, instance), obj.GetName())
+		}
+	}
 	// envtest runs no kubelet and no deployment controller: the test plays both.
 	startPod := func(name string) {
 		pod := &corev1.Pod{
@@ -149,7 +155,8 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		get("alice", dep)
 		Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
 		Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
-		Expect(dep.Spec.Template.Labels).To(HaveKeyWithValue(labelInstance, "alice"))
+		// Any other pod label would restart running desktops on upgrade.
+		Expect(dep.Spec.Template.Labels).To(Equal(map[string]string{labelInstance: "alice"}))
 		pod := dep.Spec.Template.Spec
 		Expect(*pod.AutomountServiceAccountToken).To(BeFalse())
 		Expect(*pod.SecurityContext.RunAsNonRoot).To(BeTrue())
@@ -196,6 +203,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		binding := &rbacv1.RoleBinding{}
 		get("alice-owner", binding)
 		Expect(binding.Subjects[0].Name).To(Equal("alice"))
+		expectLabeled("alice", admin, home, dep, svc, role, binding)
 	})
 
 	It("writes nothing when nothing changed", func() {
@@ -379,6 +387,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(binding.RoleRef.Kind).To(Equal("ClusterRole"))
 		Expect(binding.RoleRef.Name).To(Equal(nestedSCCRole))
 		Expect(binding.Subjects).To(ConsistOf(rbacv1.Subject{Kind: "ServiceAccount", Name: "carol-desktop", Namespace: testNS}))
+		expectLabeled("carol", sa, binding)
 
 		dep := &appsv1.Deployment{}
 		get("carol", dep)
@@ -462,6 +471,8 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(action).To(Equal("SCMP_ACT_ERRNO"))
 		arches, _, _ := unstructured.NestedStringSlice(profile.Object, "spec", "architectures")
 		Expect(arches).To(ContainElement("SCMP_ARCH_X86"))
+		// One per namespace, shared by its desktops.
+		Expect(profile.GetLabels()).To(Equal(map[string]string{labelManagedBy: managedBy}))
 
 		// Not on the nodes yet: the desktop waits instead of starting unfiltered.
 		get("dave", dave)
@@ -491,6 +502,15 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		reconcile("dave")
 		get(sandboxProfileName, profile)
 		Expect(profile.GetResourceVersion()).To(Equal(before))
+
+		// An older manager left it unlabeled: labeling it keeps the desktop running.
+		profile.SetLabels(nil)
+		Expect(k8sClient.Update(ctx, profile)).To(Succeed())
+		reconcile("dave")
+		get(sandboxProfileName, profile)
+		Expect(profile.GetLabels()).To(HaveKeyWithValue(labelManagedBy, managedBy))
+		get("dave", dave)
+		Expect(meta.FindStatusCondition(dave.Status.Conditions, ConditionSeccompFiltered).Reason).To(Equal("ManagedProfile"))
 	})
 
 	It("rejects a pinned port outside the NodePort range", func() {

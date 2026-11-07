@@ -68,6 +68,10 @@ const (
 
 	requeueStarting = 10 * time.Second
 	requeueReady    = 30 * time.Second
+
+	// The manager's cache holds no object it made without this label.
+	labelManagedBy = "app.kubernetes.io/managed-by"
+	managedBy      = "deskube"
 )
 
 // ProbeFunc reads Sunshine serverinfo; tests replace it.
@@ -297,6 +301,7 @@ func (r *VdiInstanceReconciler) reader() client.Reader {
 func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: adminSecretName(vdi), Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
+		labelManaged(secret, vdi.Name)
 		if secret.Data == nil {
 			secret.Data = map[string][]byte{}
 		}
@@ -318,6 +323,7 @@ func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv
 func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: homeClaimName(vdi), Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, pvc, func() error {
+		labelManaged(pvc, vdi.Name)
 		// A bound claim accepts next to no change.
 		if pvc.UID != "" {
 			return nil
@@ -326,7 +332,6 @@ func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1
 		if size.IsZero() {
 			size = resource.MustParse("20Gi")
 		}
-		pvc.Labels = map[string]string{labelInstance: vdi.Name}
 		pvc.Spec = corev1.PersistentVolumeClaimSpec{
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			StorageClassName: vdi.Spec.Home.StorageClassName,
@@ -359,6 +364,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 		return nil, nil
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		labelManaged(sa, vdi.Name)
 		// The desktop never sees a token of this account.
 		sa.AutomountServiceAccountToken = ptr.To(false)
 		return controllerutil.SetControllerReference(vdi, sa, r.Scheme)
@@ -374,6 +380,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 		return nil, err
 	default:
 		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+			labelManaged(binding, vdi.Name)
 			binding.Subjects = []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: sa.Name, Namespace: sa.Namespace}}
 			binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: nestedSCCRole}
 			return controllerutil.SetControllerReference(vdi, binding, r.Scheme)
@@ -402,12 +409,13 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 ) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
+		// The pod keeps this one label: another would restart every desktop.
 		labels := map[string]string{labelInstance: vdi.Name}
 		replicas := int32(1)
 		if vdi.Spec.Running != nil && !*vdi.Spec.Running {
 			replicas = 0
 		}
-		dep.Labels = labels
+		labelManaged(dep, vdi.Name)
 		dep.Spec.Replicas = &replicas
 		// The home volume and the ports belong to one pod at a time.
 		dep.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
@@ -536,7 +544,7 @@ func (r *VdiInstanceReconciler) ensureService(
 ) (*corev1.Service, error) {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
-		svc.Labels = map[string]string{labelInstance: vdi.Name}
+		labelManaged(svc, vdi.Name)
 		svc.Spec.Selector = map[string]string{labelInstance: vdi.Name}
 		svc.Spec.Type = corev1.ServiceTypeNodePort
 		if vdi.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
@@ -592,6 +600,7 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vdi.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		labelManaged(role, vdi.Name)
 		group := vdiv1alpha1.GroupVersion.Group
 		// list and watch ignore resourceNames, so the owner sees every
 		// desktop name in the namespace and can only change their own.
@@ -614,6 +623,7 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 	}
 	binding := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vdi.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+		labelManaged(binding, vdi.Name)
 		binding.Subjects = []rbacv1.Subject{{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: vdi.Spec.Owner}}
 		binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: name}
 		return controllerutil.SetControllerReference(vdi, binding, r.Scheme)
@@ -933,6 +943,19 @@ func adminSecretName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-
 func homeClaimName(vdi *vdiv1alpha1.VdiInstance) string   { return vdi.Name + "-home" }
 
 func sandboxAccountName(vdi *vdiv1alpha1.VdiInstance) string { return vdi.Name + "-desktop" }
+
+// labelManaged keeps the labels others set. An empty instance names none.
+func labelManaged(obj metav1.Object, instance string) {
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[labelManagedBy] = managedBy
+	if instance != "" {
+		labels[labelInstance] = instance
+	}
+	obj.SetLabels(labels)
+}
 
 // SetupWithManager registers the controller and its owned resources.
 func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
