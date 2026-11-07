@@ -213,12 +213,16 @@ var _ = Describe("Owner policy", Ordered, func() {
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"image": "evil.example/x:1"}))).To(byPolicy("spec.image"))
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"nestedSandboxes": true}))).To(byPolicy("spec.nestedSandboxes"))
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"owner": "mallory"}))).To(byPolicy("spec.owner"))
+		// Publishing the web UI would also hand the owner its admin password.
+		webUI := spec(map[string]any{"expose": map[string]any{"webUI": true}})
+		Expect(patch(owner, "alice-desk", webUI)).To(byPolicy("spec.expose"))
 		finalizer := map[string]any{"metadata": map[string]any{"finalizers": []string{"example.com/keep"}}}
 		Expect(patch(owner, "alice-desk", finalizer)).To(byPolicy("metadata.finalizers"))
 
 		vdi := stored("alice-desk")
 		Expect(vdi.Spec.Image).To(Equal(testImage))
 		Expect(vdi.Spec.NestedSandboxes).To(BeFalse())
+		Expect(vdi.Spec.Expose.WebUI).To(BeFalse())
 		Expect(vdi.Finalizers).To(BeEmpty())
 	})
 

@@ -573,10 +573,10 @@ func servicePorts(base int32, pinNodePorts, web bool) []corev1.ServicePort {
 	return ports
 }
 
-// ensureOwnerRBAC lets the owner read the instance, write to it, and read
-// the admin credentials for the Sunshine web UI. RBAC cannot tell one
-// field from another: config/policy narrows the writes to running and
-// pairing.
+// ensureOwnerRBAC lets the owner read the instance, write to it, and,
+// with the web UI published, read its admin password, of no use to the
+// owner otherwise. RBAC cannot tell one field from another: config/policy
+// narrows the writes to running and pairing.
 func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	name := vdi.Name + "-owner"
 	if vdi.Spec.Owner == "" {
@@ -601,10 +601,12 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 				APIGroups: []string{group}, Resources: []string{"vdiinstances"},
 				ResourceNames: []string{vdi.Name}, Verbs: []string{"update", "patch"},
 			},
-			{
+		}
+		if vdi.Spec.Expose.WebUI {
+			role.Rules = append(role.Rules, rbacv1.PolicyRule{
 				APIGroups: []string{""}, Resources: []string{"secrets"},
 				ResourceNames: []string{adminSecretName(vdi)}, Verbs: verbsRead[:1],
-			},
+			})
 		}
 		return controllerutil.SetControllerReference(vdi, role, r.Scheme)
 	}); err != nil {

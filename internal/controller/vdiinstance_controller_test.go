@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -186,14 +187,12 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 
 		role := &rbacv1.Role{}
 		get("alice-owner", role)
-		Expect(role.Rules).To(HaveLen(3))
+		// No web UI published, so no admin password for the owner either.
+		Expect(role.Rules).To(HaveLen(2))
 		Expect(role.Rules[0].ResourceNames).To(BeEmpty())
 		Expect(role.Rules[0].Verbs).To(ConsistOf("get", "list", "watch"))
 		Expect(role.Rules[1].ResourceNames).To(ConsistOf("alice"))
 		Expect(role.Rules[1].Verbs).To(ConsistOf("update", "patch"))
-		Expect(role.Rules[2].Resources).To(ConsistOf("secrets"))
-		Expect(role.Rules[2].ResourceNames).To(ConsistOf("alice-sunshine-admin"))
-		Expect(role.Rules[2].Verbs).To(ConsistOf("get"))
 		binding := &rbacv1.RoleBinding{}
 		get("alice-owner", binding)
 		Expect(binding.Subjects[0].Name).To(Equal("alice"))
@@ -271,6 +270,18 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			}
 			return nodePort, ""
 		}
+		ownerSecrets := func() []string {
+			role := &rbacv1.Role{}
+			get("alice-owner", role)
+			var names []string
+			for _, rule := range role.Rules {
+				if slices.Contains(rule.Resources, "secrets") {
+					Expect(rule.Verbs).To(ConsistOf("get"))
+					names = append(names, rule.ResourceNames...)
+				}
+			}
+			return names
+		}
 		vdi := &vdiv1alpha1.VdiInstance{}
 		get("alice", vdi)
 		vdi.Spec.Expose.WebUI = true
@@ -279,6 +290,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		port, allowed := webPort()
 		Expect(port).To(Equal(int32(30017)))
 		Expect(allowed).To(Equal("wan"))
+		Expect(ownerSecrets()).To(ConsistOf("alice-sunshine-admin"))
 
 		get("alice", vdi)
 		vdi.Spec.Expose.WebUI = false
@@ -287,6 +299,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		port, allowed = webPort()
 		Expect(port).To(BeZero())
 		Expect(allowed).To(Equal("lan"))
+		Expect(ownerSecrets()).To(BeEmpty())
 
 		r.ProbeExternal = true
 		reconcile("alice")
@@ -294,6 +307,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		port, allowed = webPort()
 		Expect(port).To(Equal(int32(30017)))
 		Expect(allowed).To(Equal("lan"))
+		Expect(ownerSecrets()).To(BeEmpty())
 		reconcile("alice")
 		port, _ = webPort()
 		Expect(port).To(BeZero())
