@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Operator level proof: a VdiInstance becomes a desktop pod, a VdiPairing
-# carries the PIN, and a headless Moonlight receives video.
+# Operator level proof: a VdiInstance becomes a desktop pod, its
+# spec.pairing carries the PIN, and a headless Moonlight receives video.
 # Needs the manager running (make run or a deployment) and the
 # moonlight-cli image from the desku.be-images repository.
 set -euo pipefail
@@ -38,7 +38,7 @@ done
 [ "$phase" = Ready ] || { oc -n "$NS" get vdiinstance "$NAME" -o yaml | sed -n '/^status:/,$p'; exit 1; }
 HOST=${addr%:*}; PORT=${addr##*:}
 
-echo "== pair through a VdiPairing"
+echo "== pair through spec.pairing"
 ml pair -port "$PORT" "$HOST" > "$WORK/pair.log" 2>&1 &
 PAIR=$!
 PIN=""
@@ -53,23 +53,16 @@ if grep -q "Already paired" "$WORK/pair.log"; then
   # The pairing lives in the home volume and outlives the pod.
   echo "  client already paired, nothing to approve"
 else
-  oc -n "$NS" delete vdipairing "$NAME-e2e" --ignore-not-found > /dev/null
-  oc -n "$NS" apply -f - <<EOF
-apiVersion: vdi.desku.be/v1alpha1
-kind: VdiPairing
-metadata:
-  name: $NAME-e2e
-spec:
-  instanceRef: $NAME
-  pin: "$PIN"
-  clientName: e2e
-EOF
+  oc -n "$NS" patch vdiinstance "$NAME" --type=merge \
+    -p "{\"spec\":{\"pairing\":{\"pin\":\"$PIN\",\"clientName\":\"e2e\"}}}"
+  # status.pairing may still report an earlier PIN.
   for _ in $(seq 1 30); do
-    pphase=$(oc -n "$NS" get vdipairing "$NAME-e2e" -o jsonpath='{.status.phase}' 2>/dev/null || true)
-    [ "$pphase" = Paired ] || [ "$pphase" = Failed ] && break
+    ppin=$(oc -n "$NS" get vdiinstance "$NAME" -o jsonpath='{.status.pairing.pin}' 2>/dev/null || true)
+    pphase=$(oc -n "$NS" get vdiinstance "$NAME" -o jsonpath='{.status.pairing.phase}' 2>/dev/null || true)
+    [ "$ppin" = "$PIN" ] && { [ "$pphase" = Paired ] || [ "$pphase" = Failed ]; } && break
     sleep 2
   done
-  oc -n "$NS" get vdipairing "$NAME-e2e"
+  oc -n "$NS" get vdiinstance "$NAME" -o jsonpath='{.status.pairing}{"\n"}'
   wait $PAIR || true
   grep -q "Succesfully paired" "$WORK/pair.log" || { cat "$WORK/pair.log"; exit 1; }
 fi
