@@ -79,7 +79,7 @@ type VdiInstanceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	// ProbeExternal probes through the client address instead of the
-	// ClusterIP, for a manager running outside the cluster.
+	// pod IP, for a manager running outside the cluster.
 	ProbeExternal bool
 	Probe         ProbeFunc
 	// APIReader reads without the cache: the manager may get one
@@ -635,18 +635,18 @@ func (r *VdiInstanceReconciler) updateStatus(
 	streaming := false
 	vdi.Status.SessionState = ""
 	if podReady && host != "" {
-		probeHost := svc.Spec.ClusterIP
-		if r.ProbeExternal || probeHost == "" || probeHost == corev1.ClusterIPNone {
-			probeHost = host
-		}
 		probe := r.Probe
 		if probe == nil {
 			probe = sunshine.GetServerInfo
 		}
-		info, perr := probe(ctx, probeHost, vdi.Status.BasePort)
-		if perr == nil && info.StatusCode == 200 {
-			streaming = true
-			vdi.Status.SessionState = info.SessionState()
+		probeHost, perr := r.sunshineHost(vdi, pod)
+		if perr == nil {
+			var info *sunshine.ServerInfo
+			info, perr = probe(ctx, probeHost, vdi.Status.BasePort)
+			if perr == nil && info.StatusCode == 200 {
+				streaming = true
+				vdi.Status.SessionState = info.SessionState()
+			}
 		}
 		setCondition(vdi, ConditionStreamingReady, streaming, "ServerInfo", errString(perr))
 	} else {
@@ -676,6 +676,24 @@ func (r *VdiInstanceReconciler) updateStatus(
 	default:
 		return ctrl.Result{RequeueAfter: requeueStarting}, nil
 	}
+}
+
+// sunshineHost is where the manager reaches Sunshine, for /serverinfo
+// and the admin API alike. The pod IP needs no port on the Service. A
+// manager outside the cluster cannot route to pods: it takes the client
+// address, and the Service must then publish the web port too.
+func (r *VdiInstanceReconciler) sunshineHost(vdi *vdiv1alpha1.VdiInstance, pod *corev1.Pod) (string, error) {
+	if r.ProbeExternal {
+		host, _, err := net.SplitHostPort(vdi.Status.Address)
+		if err != nil {
+			return "", errors.New("instance has no address yet")
+		}
+		return host, nil
+	}
+	if pod == nil || pod.Status.PodIP == "" {
+		return "", errors.New("desktop pod has no IP yet")
+	}
+	return pod.Status.PodIP, nil
 }
 
 // findPod returns the instance's pod, nil when there is none.

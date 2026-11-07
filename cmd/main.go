@@ -77,7 +77,7 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	var probeExternal bool
 	flag.BoolVar(&probeExternal, "probe-external", false,
-		"Reach Sunshine through the client address instead of the ClusterIP, for a manager outside the cluster.")
+		"Reach Sunshine through the client address instead of the pod IP, for a manager outside the cluster.")
 	var sandboxSeccompProfile string
 	flag.StringVar(&sandboxSeccompProfile, "sandbox-seccomp-profile", "",
 		"Seccomp profile already on the nodes, relative to the kubelet's seccomp directory, for desktops with "+

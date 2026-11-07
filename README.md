@@ -44,7 +44,7 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
    `make run`, or `go run ./cmd/main.go --probe-external`, runs it
    outside the cluster; it then probes desktops through the client
-   address instead of the ClusterIP.
+   address instead of the pod IP.
 
 3. Create a desktop:
 

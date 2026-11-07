@@ -19,6 +19,9 @@ package controller
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
+	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
 	"github.com/epheo/deskube/internal/sunshine"
 )
 
@@ -78,6 +81,27 @@ func TestOffGridWindowConflict(t *testing.T) {
 	}
 	if _, _, taken := held.conflict(30048); taken {
 		t.Fatal("30048 shares no port with 30016")
+	}
+}
+
+func TestSunshineHost(t *testing.T) {
+	vdi := &vdiv1alpha1.VdiInstance{Status: vdiv1alpha1.VdiInstanceStatus{Address: "203.0.113.10:30016"}}
+	pod := &corev1.Pod{Status: corev1.PodStatus{PodIP: "10.128.0.7"}}
+	inside := &VdiInstanceReconciler{}
+	if h, err := inside.sunshineHost(vdi, pod); err != nil || h != "10.128.0.7" {
+		t.Errorf("inside: got %q, %v", h, err)
+	}
+	for _, p := range []*corev1.Pod{nil, {}} {
+		if h, err := inside.sunshineHost(vdi, p); err == nil {
+			t.Errorf("inside, pod %v: got %q, want an error", p, h)
+		}
+	}
+	outside := &VdiInstanceReconciler{ProbeExternal: true}
+	if h, err := outside.sunshineHost(vdi, pod); err != nil || h != "203.0.113.10" {
+		t.Errorf("outside: got %q, %v", h, err)
+	}
+	if h, err := outside.sunshineHost(&vdiv1alpha1.VdiInstance{}, pod); err == nil {
+		t.Errorf("outside, no address: got %q, want an error", h)
 	}
 }
 

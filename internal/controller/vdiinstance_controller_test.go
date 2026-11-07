@@ -50,9 +50,11 @@ const (
 )
 
 var _ = Describe("VdiInstance controller", Ordered, func() {
+	const podIP = "10.128.0.7"
 	var (
-		r     *VdiInstanceReconciler
-		probe *sunshine.ServerInfo
+		r         *VdiInstanceReconciler
+		probe     *sunshine.ServerInfo
+		probedVia string
 	)
 
 	reconcile := func(name string) {
@@ -72,6 +74,8 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+		pod.Status.PodIP = podIP
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
 		dep := &appsv1.Deployment{}
 		get(name, dep)
 		dep.Status.Replicas, dep.Status.ReadyReplicas = 1, 1
@@ -95,7 +99,8 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		r = &VdiInstanceReconciler{
 			Client: k8sClient,
 			Scheme: scheme.Scheme,
-			Probe: func(context.Context, string, int32) (*sunshine.ServerInfo, error) {
+			Probe: func(_ context.Context, host string, _ int32) (*sunshine.ServerInfo, error) {
+				probedVia = host
 				if probe == nil {
 					return nil, errors.New("connection refused")
 				}
@@ -212,6 +217,13 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(vdi.Status.Phase).To(Equal(vdiv1alpha1.PhaseReady))
 		Expect(vdi.Status.SessionState).To(Equal("busy"))
 		Expect(meta.IsStatusConditionTrue(vdi.Status.Conditions, ConditionReady)).To(BeTrue())
+		Expect(probedVia).To(Equal(podIP))
+
+		// A manager outside the cluster cannot route to the pod.
+		r.ProbeExternal = true
+		reconcile("alice")
+		r.ProbeExternal = false
+		Expect(probedVia).To(Equal("203.0.113.10"))
 	})
 
 	It("follows a new image and an explicit host", func() {
