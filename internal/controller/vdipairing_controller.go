@@ -139,13 +139,18 @@ func (r *VdiPairingReconciler) reconcile(ctx context.Context, pairing *vdiv1alph
 // adminHost is where the web UI answers from the manager's point of view.
 func (r *VdiPairingReconciler) adminHost(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (string, error) {
 	if !r.ProbeExternal {
-		svc := &corev1.Service{}
-		if err := r.Get(ctx, types.NamespacedName{Name: vdi.Name, Namespace: vdi.Namespace}, svc); err != nil {
+		// The Service no longer carries the web port unless expose.webUI.
+		pods := &corev1.PodList{}
+		if err := r.List(ctx, pods, client.InNamespace(vdi.Namespace),
+			client.MatchingLabels{labelInstance: vdi.Name}); err != nil {
 			return "", err
 		}
-		if svc.Spec.ClusterIP != "" && svc.Spec.ClusterIP != corev1.ClusterIPNone {
-			return svc.Spec.ClusterIP, nil
+		for i := range pods.Items {
+			if p := &pods.Items[i]; p.DeletionTimestamp == nil && p.Status.PodIP != "" {
+				return p.Status.PodIP, nil
+			}
 		}
+		return "", fmt.Errorf("desktop pod has no IP yet")
 	}
 	host, _, err := net.SplitHostPort(vdi.Status.Address)
 	if err != nil {
