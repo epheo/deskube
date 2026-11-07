@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -538,6 +539,43 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			reconcile("erin")
 			get("erin", erin)
 			Expect(erin.Status.BasePort).To(Equal(int32(30176)))
+		})
+
+		It("moves to another window when the Service cannot have its node ports", func() {
+			frank := desktop("frank", 0)
+			// As if the squatter took the port between allocation and the Service.
+			frank.Status.BasePort = 30144
+			Expect(k8sClient.Status().Update(ctx, frank)).To(Succeed())
+
+			Expect(reconcileErr("frank")).To(HaveOccurred())
+			get("frank", frank)
+			Expect(frank.Status.BasePort).To(BeZero())
+			cond := meta.FindStatusCondition(frank.Status.Conditions, ConditionNetworkReady)
+			Expect(cond.Reason).To(Equal("PortConflict"))
+			Expect(cond.Message).To(ContainSubstring("30154"))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "frank", Namespace: testNS}, &appsv1.Deployment{})).NotTo(Succeed())
+
+			reconcile("frank")
+			get("frank", frank)
+			Expect(frank.Status.BasePort).To(Equal(int32(30208)))
+			svc := &corev1.Service{}
+			get("frank", svc)
+			Expect(svc.Spec.Ports[0].NodePort).To(Equal(int32(30203)))
+
+			// A cache that missed frank's Service must not cost frank its window.
+			r.Client = interceptor.NewClient(raw, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*corev1.Service); ok && key.Name == "frank" {
+						return apierrors.NewNotFound(corev1.Resource("services"), key.Name)
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			})
+			Expect(reconcileErr("frank")).To(Succeed())
+			r.Client = cacheLike
+			get("frank", frank)
+			Expect(frank.Status.BasePort).To(Equal(int32(30208)))
+			Expect(meta.FindStatusCondition(frank.Status.Conditions, ConditionNetworkReady).Reason).To(Equal("Address"))
 		})
 
 		It("refuses a pinned base whose ports another desktop or Service holds", func() {

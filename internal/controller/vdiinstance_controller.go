@@ -145,6 +145,15 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 		log.Info("allocated base port", "basePort", base)
 	}
 
+	// The Service claims the node ports before a pod starts on them.
+	svc, err := r.ensureService(ctx, vdi)
+	if err != nil {
+		if svc.UID == "" && nodePortTaken(err) {
+			return r.releaseWindow(ctx, vdi, err)
+		}
+		return r.fail(ctx, vdi, ConditionNetworkReady, "ServiceApply", err)
+	}
+
 	if err := r.ensureAdminSecret(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -175,10 +184,6 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	dep, err := r.ensureDeployment(ctx, vdi, pullSecrets, seccomp.Profile)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
-	}
-	svc, err := r.ensureService(ctx, vdi)
-	if err != nil {
-		return r.fail(ctx, vdi, ConditionNetworkReady, "ServiceApply", err)
 	}
 	if err := r.ensureOwnerRBAC(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
@@ -254,6 +259,25 @@ func (r *VdiInstanceReconciler) heldNodePorts(
 		}
 	}
 	return held, nil
+}
+
+// releaseWindow drops a window the API server refused node ports for, so
+// the next pass allocates another or, for a pinned base, names the holder.
+func (r *VdiInstanceReconciler) releaseWindow(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, cause error,
+) (ctrl.Result, error) {
+	// A Service the cache missed holds these ports itself; its window stays.
+	err := r.reader().Get(ctx, client.ObjectKey{Name: vdi.Name, Namespace: vdi.Namespace}, &corev1.Service{})
+	switch {
+	case err == nil:
+		logf.FromContext(ctx).V(1).Info("retrying after a stale read", "cause", cause.Error())
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	case !apierrors.IsNotFound(err):
+		return ctrl.Result{}, err
+	}
+	logf.FromContext(ctx).Info("node ports taken, giving up the window", "basePort", vdi.Status.BasePort)
+	vdi.Status.BasePort = 0
+	return r.fail(ctx, vdi, ConditionNetworkReady, "PortConflict", cause)
 }
 
 // reader reads past the cache.

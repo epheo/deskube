@@ -19,6 +19,9 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"strings"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/epheo/deskube/internal/sunshine"
 )
@@ -81,6 +84,21 @@ type portConflictError struct {
 
 func (e *portConflictError) Error() string {
 	return fmt.Sprintf("basePort %d needs node port %d, held by %s", e.base, e.port, e.holder)
+}
+
+// nodePortTaken reports whether the API server refused a Service because
+// another one holds one of its node ports.
+func nodePortTaken(err error) bool {
+	var status apierrors.APIStatus
+	if !apierrors.IsInvalid(err) || !errors.As(err, &status) || status.Status().Details == nil {
+		return false
+	}
+	for _, cause := range status.Status().Details.Causes {
+		if strings.HasSuffix(cause.Field, ".nodePort") && strings.Contains(cause.Message, "already allocated") {
+			return true
+		}
+	}
+	return false
 }
 
 // nodePortBaseValid reports whether every derived port fits the NodePort range.

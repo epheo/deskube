@@ -105,6 +105,13 @@ otherwise refuse each other forever. The first one keeps the window.
 A refused pin reports NetworkReady False, reason PortConflict, naming
 the holder.
 
+The Service is created before the pod, so the API server's own check
+on NodePorts comes first. When it refuses one, a desktop whose Service
+does not exist yet drops its window: an unpinned one takes the next
+free window, a pinned one reports PortConflict.
+A Service that exists keeps its window even then: a stale cache makes
+the manager create it again, and its own ports read as taken.
+
 ## Order of work
 
 1. Done: VdiInstance as a pod, pairing, owner RBAC, idle shutdown.
