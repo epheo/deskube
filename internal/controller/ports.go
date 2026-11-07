@@ -19,7 +19,7 @@ package controller
 import (
 	"errors"
 
-	"github.com/deskube/deskube/internal/sunshine"
+	"github.com/epheo/deskube/internal/sunshine"
 )
 
 const (

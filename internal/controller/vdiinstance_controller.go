@@ -41,8 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
-	"github.com/deskube/deskube/internal/sunshine"
+	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
+	"github.com/epheo/deskube/internal/sunshine"
 )
 
 // Condition types on a VdiInstance. Ready aggregates the other three.

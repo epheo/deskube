@@ -36,8 +36,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
-	"github.com/deskube/deskube/internal/controller"
+	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
+	"github.com/epheo/deskube/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 

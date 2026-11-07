@@ -6,7 +6,7 @@
 set -euo pipefail
 NS=${NS:-deskube-dev}
 NAME=${NAME:-desk-op}
-IMAGE=${IMAGE:-registry.desku.be/deskube/desktop:dev}
+IMAGE=${IMAGE:-ghcr.io/epheo/deskube-desktop:main}
 OWNER=${OWNER:-$(oc whoami)}
 WORK=${WORK:-$(mktemp -d)}
 CACHE=$WORK/moonlight-cache

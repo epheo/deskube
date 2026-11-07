@@ -28,19 +28,19 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 ## Quick start
 
-1. Build and push the operator image:
+1. Pick the operator image. CI publishes `ghcr.io/epheo/deskube:main`
+   from every commit on main. To build your own:
 
-       make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:dev
+       make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:<tag>
 
    The desktop images (sway, Sunshine and the input shim on the newest
-   Fedora release, plus a Steam variant) are built in the
-   [desku.be-images](../desku.be-images) repository; the operator only
-   knows them by name.
+   Fedora release, plus a Steam variant) are built in their own
+   repository; the operator only knows them by name.
 
 2. Install the operator:
 
        make install
-       make deploy IMG=<registry>/deskube:dev
+       make deploy
 
    `make run`, or `go run ./cmd/main.go --probe-external`, runs it
    outside the cluster; it then probes desktops through the client
@@ -53,7 +53,7 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
        metadata:
          name: alice-desk
        spec:
-         image: registry.desku.be/deskube/desktop:dev
+         image: ghcr.io/epheo/deskube-desktop:main
          owner: alice
          resources:
            requests: {cpu: "2", memory: 4Gi}
@@ -127,8 +127,11 @@ container without capabilities by `hack/seccomp/flatten.py`.
 Moonlight through a VdiPairing. Owners see their namespace; admins see
 all.
 
-    make console-build console-push CONTAINER_TOOL=podman CONSOLE_IMG=<registry>/console-plugin:dev
-    make console-deploy CONSOLE_IMG=<registry>/console-plugin:dev
+    make console-deploy
+
+CI publishes `ghcr.io/epheo/deskube-console-plugin:main`. To build
+your own, `make console-build console-push CONSOLE_IMG=<image>`, then
+pass the same `CONSOLE_IMG` to `make console-deploy`.
 
 The deploy target registers the ConsolePlugin and enables it in the
 console operator. The console pods restart once, then the item appears.

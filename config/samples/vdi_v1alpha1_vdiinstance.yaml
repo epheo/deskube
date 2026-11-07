@@ -3,7 +3,7 @@ kind: VdiInstance
 metadata:
   name: alice-desk
 spec:
-  image: registry.desku.be/deskube/desktop:dev
+  image: ghcr.io/epheo/deskube-desktop:main
   owner: alice
   idleTimeout: 1h
   resources:

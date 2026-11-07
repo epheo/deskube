@@ -27,8 +27,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
-	"github.com/deskube/deskube/internal/sunshine"
+	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
+	"github.com/epheo/deskube/internal/sunshine"
 )
 
 type fakeSunshine struct {

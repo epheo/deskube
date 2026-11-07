@@ -6,5 +6,5 @@ resources:
   - deployment.yaml
 images:
   - name: deskube-console-plugin
-    newName: registry.desku.be/deskube/console-plugin
-    newTag: dev
+    newName: ghcr.io/epheo/deskube-console-plugin
+    newTag: main

@@ -31,7 +31,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
+	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
 )
 
 // The default seccomp profile of podman on Fedora, resolved for a

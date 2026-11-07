@@ -38,8 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	vdiv1alpha1 "github.com/deskube/deskube/api/v1alpha1"
-	"github.com/deskube/deskube/internal/sunshine"
+	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
+	"github.com/epheo/deskube/internal/sunshine"
 )
 
 const (

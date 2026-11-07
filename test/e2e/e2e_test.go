@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2" //nolint:revive,staticcheck
 	. "github.com/onsi/gomega"    //nolint:revive,staticcheck
 
-	"github.com/deskube/deskube/test/utils"
+	"github.com/epheo/deskube/test/utils"
 )
 
 const namespace = "deskube-system"

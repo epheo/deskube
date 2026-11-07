@@ -1,4 +1,4 @@
-module github.com/deskube/deskube
+module github.com/epheo/deskube
 
 go 1.26.0
 
