@@ -14,3 +14,9 @@ spec:
       memory: 4Gi
   home:
     size: 20Gi
+  # Moonlight shows a PIN when you add the desktop's address. Put it here
+  # instead of typing it inside the desktop; the operator removes it once
+  # the pairing succeeded or failed, and status.pairing says which.
+  # pairing:
+  #   pin: "1234"
+  #   clientName: laptop

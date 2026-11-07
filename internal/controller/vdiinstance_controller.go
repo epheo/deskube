@@ -74,7 +74,7 @@ const (
 type ProbeFunc func(ctx context.Context, host string, basePort int32) (*sunshine.ServerInfo, error)
 
 // VdiInstanceReconciler turns a VdiInstance into a desktop pod with a
-// home volume, a Service, and the secret the pairing controller needs.
+// home volume and a Service, and pairs Moonlight clients with it.
 type VdiInstanceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -82,6 +82,8 @@ type VdiInstanceReconciler struct {
 	// pod IP, for a manager running outside the cluster.
 	ProbeExternal bool
 	Probe         ProbeFunc
+	// AdminClient builds the Sunshine admin API client; tests inject a fake.
+	AdminClient NewPairingClient
 	// APIReader reads without the cache: the manager may get one
 	// ClusterRole by name, not list and watch them all, and port
 	// allocation must see every Service in the cluster, fresh.
@@ -188,7 +190,11 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	if err := r.ensureOwnerRBAC(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
-	return r.updateStatus(ctx, vdi, dep, svc)
+	result, err := r.updateStatus(ctx, vdi, dep, svc)
+	if err != nil {
+		return result, err
+	}
+	return r.reconcilePairing(ctx, vdi, result)
 }
 
 // chooseBasePort honours a pinned port, else takes the lowest free window.
@@ -567,8 +573,8 @@ func servicePorts(base int32, pinNodePorts, web bool) []corev1.ServicePort {
 	return ports
 }
 
-// ensureOwnerRBAC lets the owner read the instance, pair clients, and
-// read the admin credentials for the Sunshine web UI.
+// ensureOwnerRBAC lets the owner read the instance, write to it, and read
+// the admin credentials for the Sunshine web UI.
 func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	name := vdi.Name + "-owner"
 	if vdi.Spec.Owner == "" {
@@ -592,10 +598,6 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 			{
 				APIGroups: []string{group}, Resources: []string{"vdiinstances"},
 				ResourceNames: []string{vdi.Name}, Verbs: []string{"update", "patch"},
-			},
-			{
-				APIGroups: []string{group}, Resources: []string{"vdipairings"},
-				Verbs: append(append([]string{}, verbsRead...), "create", "delete"),
 			},
 			{
 				APIGroups: []string{""}, Resources: []string{"secrets"},

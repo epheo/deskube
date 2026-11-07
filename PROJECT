@@ -20,13 +20,4 @@ resources:
   kind: VdiInstance
   path: github.com/epheo/deskube/api/v1alpha1
   version: v1alpha1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: desku.be
-  group: vdi
-  kind: VdiPairing
-  path: github.com/epheo/deskube/api/v1alpha1
-  version: v1alpha1
 version: "3"

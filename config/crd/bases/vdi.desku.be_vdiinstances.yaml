@@ -146,6 +146,21 @@ spec:
                 description: Owner is the Kubernetes user allowed to read this instance
                   and pair clients.
                 type: string
+              pairing:
+                description: |-
+                  Pairing approves the Moonlight client waiting for this PIN. The
+                  operator removes it once the pairing succeeded or failed.
+                properties:
+                  clientName:
+                    default: moonlight
+                    description: ClientName labels the paired client in Sunshine.
+                    type: string
+                  pin:
+                    pattern: ^[0-9]{4}$
+                    type: string
+                required:
+                - pin
+                type: object
               resources:
                 description: Resources bound the desktop's CPU and memory.
                 properties:
@@ -310,6 +325,27 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              pairing:
+                description: Pairing reports the last PIN handed over in spec.pairing.
+                properties:
+                  message:
+                    type: string
+                  pairedAt:
+                    format: date-time
+                    type: string
+                  phase:
+                    description: PairingPhase is the outcome of a pairing request.
+                    type: string
+                  pin:
+                    description: PIN names the request this status is about.
+                    type: string
+                  requestedAt:
+                    description: |-
+                      RequestedAt is when the operator first saw the PIN. Moonlight gives
+                      up ten minutes later, and so does the operator.
+                    format: date-time
+                    type: string
+                type: object
               phase:
                 description: VdiInstancePhase is a one word summary of the status
                   conditions.

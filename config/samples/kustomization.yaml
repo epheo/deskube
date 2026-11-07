@@ -1,5 +1,4 @@
 ## Append samples of your project ##
 resources:
 - vdi_v1alpha1_vdiinstance.yaml
-- vdi_v1alpha1_vdipairing.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

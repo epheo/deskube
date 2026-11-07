@@ -79,6 +79,17 @@ type StreamSpec struct {
 	KeyboardLayout string `json:"keyboardLayout,omitempty"`
 }
 
+// PairingSpec carries the PIN Moonlight shows, so nobody types it inside
+// the desktop.
+type PairingSpec struct {
+	// +kubebuilder:validation:Pattern=`^[0-9]{4}$`
+	PIN string `json:"pin"`
+	// ClientName labels the paired client in Sunshine.
+	// +kubebuilder:default=moonlight
+	// +optional
+	ClientName string `json:"clientName,omitempty"`
+}
+
 // VdiInstanceSpec defines one desktop for one owner.
 type VdiInstanceSpec struct {
 	// Image is the desktop's container image.
@@ -117,6 +128,10 @@ type VdiInstanceSpec struct {
 	// nested namespaces, unless the manager was given a profile to use.
 	// +optional
 	NestedSandboxes bool `json:"nestedSandboxes,omitempty"`
+	// Pairing approves the Moonlight client waiting for this PIN. The
+	// operator removes it once the pairing succeeded or failed.
+	// +optional
+	Pairing *PairingSpec `json:"pairing,omitempty"`
 }
 
 // VdiInstancePhase is a one word summary of the status conditions.
@@ -131,6 +146,33 @@ const (
 	PhaseStopped      VdiInstancePhase = "Stopped"
 	PhaseFailed       VdiInstancePhase = "Failed"
 )
+
+// PairingPhase is the outcome of a pairing request.
+type PairingPhase string
+
+// Pairing phases; Pending retries, the other two are final.
+const (
+	PairingPending PairingPhase = "Pending"
+	PairingPaired  PairingPhase = "Paired"
+	PairingFailed  PairingPhase = "Failed"
+)
+
+// PairingStatus reports the last pairing request.
+type PairingStatus struct {
+	// PIN names the request this status is about.
+	// +optional
+	PIN string `json:"pin,omitempty"`
+	// +optional
+	Phase PairingPhase `json:"phase,omitempty"`
+	// +optional
+	Message string `json:"message,omitempty"`
+	// RequestedAt is when the operator first saw the PIN. Moonlight gives
+	// up ten minutes later, and so does the operator.
+	// +optional
+	RequestedAt *metav1.Time `json:"requestedAt,omitempty"`
+	// +optional
+	PairedAt *metav1.Time `json:"pairedAt,omitempty"`
+}
 
 // VdiInstanceStatus reports what a client needs to connect.
 type VdiInstanceStatus struct {
@@ -150,6 +192,9 @@ type VdiInstanceStatus struct {
 	// LastActive is when a session was last seen, or when the desktop became Ready.
 	// +optional
 	LastActive *metav1.Time `json:"lastActive,omitempty"`
+	// Pairing reports the last PIN handed over in spec.pairing.
+	// +optional
+	Pairing *PairingStatus `json:"pairing,omitempty"`
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
