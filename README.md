@@ -28,8 +28,13 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
 ## Quick start
 
-1. Pick the operator image. CI publishes `ghcr.io/epheo/deskube:main`
-   from every commit on main. To build your own:
+1. Pick the operator image. For every commit on main, CI publishes
+   `ghcr.io/epheo/deskube:sha-<first 7 characters of the commit>` and
+   moves `:main` to it.
+   Deploy a `sha-` tag or a digest, not `:main`.
+   The manager does not pull its image again when it restarts:
+   a restart never waits on the registry, and a moving tag goes stale.
+   To build your own:
 
        make docker-build docker-push CONTAINER_TOOL=podman IMG=<registry>/deskube:<tag>
 
@@ -41,6 +46,9 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
 
        make install
        make deploy
+
+   `make deploy` takes the `sha-` image of the checked out commit.
+   For a commit CI did not build, pass `IMG`.
 
    `make run`, or `go run ./cmd/main.go --probe-external`, runs it
    outside the cluster; it then probes desktops through the client

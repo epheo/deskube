@@ -64,8 +64,9 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
         image: controller:latest
-        # A moving dev tag must be pulled again on every restart.
-        imagePullPolicy: Always
+        # A restart must not wait on the registry.
+        # Deploy a sha- tag or a digest: a moving tag goes stale on the node.
+        imagePullPolicy: IfNotPresent
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
