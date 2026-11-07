@@ -7,6 +7,8 @@ export interface Condition {
   message?: string;
 }
 
+export type PairingPhase = 'Pending' | 'Paired' | 'Failed';
+
 export interface VdiInstance extends K8sResourceCommon {
   spec: {
     image: string;
@@ -16,6 +18,7 @@ export interface VdiInstance extends K8sResourceCommon {
     running?: boolean;
     idleTimeout?: string;
     expose?: { type?: 'NodePort' | 'LoadBalancer'; basePort?: number; host?: string };
+    pairing?: { pin: string; clientName?: string };
   };
   status?: {
     phase?: 'Provisioning' | 'Starting' | 'Ready' | 'Stopping' | 'Stopped' | 'Failed';
@@ -24,11 +27,7 @@ export interface VdiInstance extends K8sResourceCommon {
     adminSecret?: string;
     sessionState?: string;
     lastActive?: string;
+    pairing?: { pin?: string; phase?: PairingPhase; message?: string; requestedAt?: string; pairedAt?: string };
     conditions?: Condition[];
   };
-}
-
-export interface VdiPairing extends K8sResourceCommon {
-  spec: { instanceRef: string; pin: string; clientName?: string };
-  status?: { phase?: 'Pending' | 'Paired' | 'Failed'; message?: string; pairedAt?: string };
 }
