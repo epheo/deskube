@@ -5,9 +5,6 @@
 domain: desku.be
 layout:
 - go.kubebuilder.io/v4
-plugins:
-  manifests.sdk.operatorframework.io/v2: {}
-  scorecard.sdk.operatorframework.io/v2: {}
 projectName: deskube
 repo: github.com/epheo/deskube
 resources:
