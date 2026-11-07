@@ -122,14 +122,10 @@ func (r *VdiInstanceReconciler) ensureManagedProfile(ctx context.Context, namesp
 	sum := sha256.Sum256(sandboxSeccompSpec)
 	hash := hex.EncodeToString(sum[:8])
 
-	// Uncached: a watch on a kind that may not exist would never sync.
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
 	profile := &unstructured.Unstructured{}
 	profile.SetGroupVersionKind(seccompProfileGVK)
-	err := reader.Get(ctx, client.ObjectKey{Name: sandboxProfileName, Namespace: namespace}, profile)
+	// Uncached: a watch on a kind that may not exist would never sync.
+	err := r.reader().Get(ctx, client.ObjectKey{Name: sandboxProfileName, Namespace: namespace}, profile)
 	switch {
 	case apierrors.IsNotFound(err):
 		profile.SetName(sandboxProfileName)

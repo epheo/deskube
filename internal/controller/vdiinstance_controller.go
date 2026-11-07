@@ -88,9 +88,9 @@ type VdiInstanceReconciler struct {
 	Probe         ProbeFunc
 	// AdminClient builds the Sunshine admin API client; tests inject a fake.
 	AdminClient NewPairingClient
-	// APIReader reads without the cache: the manager may get one
-	// ClusterRole by name, not list and watch them all, and port
-	// allocation must see every Service in the cluster, fresh.
+	// APIReader reads past the cache, which holds only what DeskuBe made.
+	// ClusterRoles too: the manager may get one by name, not watch them all.
+	// Port allocation too: it must see every Service in the cluster, fresh.
 	APIReader client.Reader
 	// SandboxSeccompProfile names a seccomp profile already on the
 	// nodes, relative to the kubelet's seccomp directory, for sandbox
@@ -300,7 +300,7 @@ func (r *VdiInstanceReconciler) reader() client.Reader {
 
 func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: adminSecretName(vdi), Namespace: vdi.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
+	_, err := r.createOrUpdate(ctx, secret, func() error {
 		labelManaged(secret, vdi.Name)
 		if secret.Data == nil {
 			secret.Data = map[string][]byte{}
@@ -322,7 +322,7 @@ func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv
 // of the desktop and goes away with the instance.
 func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: homeClaimName(vdi), Namespace: vdi.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, pvc, func() error {
+	_, err := r.createOrUpdate(ctx, pvc, func() error {
 		labelManaged(pvc, vdi.Name)
 		// A bound claim accepts next to no change.
 		if pvc.UID != "" {
@@ -363,7 +363,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 		}
 		return nil, nil
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+	if _, err := r.createOrUpdate(ctx, sa, func() error {
 		labelManaged(sa, vdi.Name)
 		// The desktop never sees a token of this account.
 		sa.AutomountServiceAccountToken = ptr.To(false)
@@ -379,7 +379,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 	case err != nil:
 		return nil, err
 	default:
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+		if _, err := r.createOrUpdate(ctx, binding, func() error {
 			labelManaged(binding, vdi.Name)
 			binding.Subjects = []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: sa.Name, Namespace: sa.Namespace}}
 			binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: nestedSCCRole}
@@ -390,7 +390,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 	}
 
 	def := &corev1.ServiceAccount{}
-	if err := r.Get(ctx, client.ObjectKey{Name: "default", Namespace: vdi.Namespace}, def); err != nil {
+	if err := r.reader().Get(ctx, client.ObjectKey{Name: "default", Namespace: vdi.Namespace}, def); err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}
 	var pullSecrets []corev1.LocalObjectReference
@@ -408,7 +408,7 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 	seccomp *corev1.SeccompProfile,
 ) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
+	_, err := r.createOrUpdate(ctx, dep, func() error {
 		// The pod keeps this one label: another would restart every desktop.
 		labels := map[string]string{labelInstance: vdi.Name}
 		replicas := int32(1)
@@ -543,7 +543,7 @@ func (r *VdiInstanceReconciler) ensureService(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
 ) (*corev1.Service, error) {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
+	_, err := r.createOrUpdate(ctx, svc, func() error {
 		labelManaged(svc, vdi.Name)
 		svc.Spec.Selector = map[string]string{labelInstance: vdi.Name}
 		svc.Spec.Type = corev1.ServiceTypeNodePort
@@ -599,7 +599,7 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 		return nil
 	}
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vdi.Namespace}}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+	if _, err := r.createOrUpdate(ctx, role, func() error {
 		labelManaged(role, vdi.Name)
 		group := vdiv1alpha1.GroupVersion.Group
 		// list and watch ignore resourceNames, so the owner sees every
@@ -622,7 +622,7 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 		return err
 	}
 	binding := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vdi.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+	_, err := r.createOrUpdate(ctx, binding, func() error {
 		labelManaged(binding, vdi.Name)
 		binding.Subjects = []rbacv1.Subject{{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: vdi.Spec.Owner}}
 		binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: name}
