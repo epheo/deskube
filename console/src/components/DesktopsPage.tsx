@@ -75,6 +75,8 @@ export const webUiUrl = (address?: string): string | undefined => {
   return `https://${address.slice(0, i)}:${Number(address.slice(i + 1)) + 1}`;
 };
 
+const DESKTOPS_RESOURCE = 'vdiinstances';
+
 const isRunning = (vdi: VdiInstance): boolean => vdi.spec.running !== false;
 
 const condition = (vdi: VdiInstance, type: string): Condition | undefined =>
@@ -158,14 +160,19 @@ const DesktopActions: FC<ActionsProps> = ({ vdi, desktopClass, classUnknown, onP
   const ready = vdi.status?.phase === 'Ready';
   const web = webUiUrl(vdi.status?.address);
   const published = useWebUiPublished(vdi, desktopClass, classUnknown);
+  const [canDelete] = useAccessReview({
+    group: VdiInstanceGVK.group,
+    resource: DESKTOPS_RESOURCE,
+    verb: 'delete',
+    namespace: vdi.metadata?.namespace,
+  });
   const items: IAction[] = [
     { title: 'Pair a Moonlight client', onClick: onPair, isDisabled: !ready },
     isRunning(vdi) ? { title: 'Stop', onClick: () => onSetRunning(false) } : { title: 'Start', onClick: () => onSetRunning(true) },
     ...(published
       ? [{ title: 'Open Sunshine web UI', onClick: () => window.open(web, '_blank', 'noopener'), isDisabled: !web || !ready }]
       : []),
-    { isSeparator: true },
-    { title: 'Delete', onClick: onDelete },
+    ...(canDelete ? [{ isSeparator: true }, { title: 'Delete', onClick: onDelete }] : []),
   ];
   return <ActionsColumn items={items} />;
 };
@@ -182,6 +189,7 @@ const DesktopsPage: FC = () => {
   );
   const [desktops, loaded, loadError] = useK8sWatchResource<VdiInstance[]>(watch);
   const [classes, , classesError] = useVdiClasses();
+  const [canCreate] = useAccessReview({ group: VdiInstanceGVK.group, resource: DESKTOPS_RESOURCE, verb: 'create', namespace });
   const classByName = useMemo(() => new Map(classes.map((c) => [c.metadata?.name, c])), [classes]);
 
   const [pairing, setPairing] = useState<VdiInstance | null>(null);
@@ -220,11 +228,13 @@ const DesktopsPage: FC = () => {
             <ToolbarItem>
               <Title headingLevel="h1">Virtual Desktops</Title>
             </ToolbarItem>
-            <ToolbarItem align={{ default: 'alignEnd' }}>
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                Create desktop
-              </Button>
-            </ToolbarItem>
+            {canCreate && (
+              <ToolbarItem align={{ default: 'alignEnd' }}>
+                <Button variant="primary" onClick={() => setCreating(true)}>
+                  Create desktop
+                </Button>
+              </ToolbarItem>
+            )}
           </ToolbarContent>
         </Toolbar>
 
@@ -243,7 +253,7 @@ const DesktopsPage: FC = () => {
         ) : rows.length === 0 ? (
           <EmptyState titleText="No desktops yet" headingLevel="h4">
             <EmptyStateBody>
-              A desktop is a VdiInstance. Create one, then pair Moonlight with the PIN it shows.
+              {canCreate ? 'Create one, then pair Moonlight with the PIN it shows.' : 'Ask an admin for one.'}
             </EmptyStateBody>
           </EmptyState>
         ) : (
