@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -88,6 +89,22 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		dep.Status.Replicas, dep.Status.ReadyReplicas = 1, 1
 		Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 	}
+	// The ports any source reaches, and those only the manager's pods reach.
+	policyPorts := func(name string) (anyone, manager []string) {
+		policy := &networkingv1.NetworkPolicy{}
+		get(name, policy)
+		for _, rule := range policy.Spec.Ingress {
+			for _, p := range rule.Ports {
+				port := string(*p.Protocol) + "/" + p.Port.String()
+				if len(rule.From) == 0 {
+					anyone = append(anyone, port)
+				} else {
+					manager = append(manager, port)
+				}
+			}
+		}
+		return anyone, manager
+	}
 	stopPod := func(name string) {
 		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name + "-0", Namespace: testNS}}
 		Expect(k8sClient.Delete(ctx, pod, client.GracePeriodSeconds(0))).To(Succeed())
@@ -104,8 +121,9 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			Status:     corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.5"}, {Type: corev1.NodeExternalIP, Address: "203.0.113.10"}}},
 		})).To(Succeed())
 		r = &VdiInstanceReconciler{
-			Client: k8sClient,
-			Scheme: scheme.Scheme,
+			Client:           k8sClient,
+			Scheme:           scheme.Scheme,
+			ManagerNamespace: "deskube-system",
 			Probe: func(_ context.Context, host string, _ int32) (*sunshine.ServerInfo, error) {
 				probedVia = host
 				if probe == nil {
@@ -203,17 +221,37 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		binding := &rbacv1.RoleBinding{}
 		get("alice-owner", binding)
 		Expect(binding.Subjects[0].Name).To(Equal("alice"))
-		expectLabeled("alice", admin, home, dep, svc, role, binding)
+
+		policy := &networkingv1.NetworkPolicy{}
+		get("alice", policy)
+		Expect(metav1.IsControlledBy(policy, vdi)).To(BeTrue())
+		Expect(policy.Spec.PodSelector.MatchLabels).To(Equal(dep.Spec.Template.Labels))
+		// Egress stays open: a desktop browses the internet.
+		Expect(policy.Spec.PolicyTypes).To(ConsistOf(networkingv1.PolicyTypeIngress))
+		Expect(policy.Spec.Ingress).To(HaveLen(2))
+		Expect(policy.Spec.Ingress[1].From).To(ConsistOf(networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": "deskube-system"}},
+			PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"control-plane": "controller-manager"}},
+		}))
+		anyone, manager := policyPorts("alice")
+		// The readiness probe's port, 30016, is one of them.
+		Expect(anyone).To(ConsistOf("TCP/30011", "TCP/30016", "UDP/30025", "UDP/30026", "UDP/30027", "TCP/30037"))
+		Expect(manager).To(ConsistOf("TCP/30017"))
+		expectLabeled("alice", admin, home, dep, svc, role, binding, policy)
 	})
 
 	It("writes nothing when nothing changed", func() {
 		dep := &appsv1.Deployment{}
 		get("alice", dep)
-		before := dep.ResourceVersion
+		policy := &networkingv1.NetworkPolicy{}
+		get("alice", policy)
+		before, policyBefore := dep.ResourceVersion, policy.ResourceVersion
 		reconcile("alice")
 		get("alice", dep)
 		Expect(dep.ResourceVersion).To(Equal(before))
 		Expect(dep.Generation).To(Equal(int64(1)))
+		get("alice", policy)
+		Expect(policy.ResourceVersion).To(Equal(policyBefore))
 	})
 
 	It("reports Ready once the pod is ready and Sunshine answers", func() {
@@ -299,6 +337,9 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(port).To(Equal(int32(30017)))
 		Expect(allowed).To(Equal("wan"))
 		Expect(ownerSecrets()).To(ConsistOf("alice-sunshine-admin"))
+		anyone, manager := policyPorts("alice")
+		Expect(anyone).To(ContainElement("TCP/30017"))
+		Expect(manager).To(BeEmpty())
 
 		get("alice", vdi)
 		vdi.Spec.Expose.WebUI = false
@@ -308,6 +349,9 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(port).To(BeZero())
 		Expect(allowed).To(Equal("lan"))
 		Expect(ownerSecrets()).To(BeEmpty())
+		anyone, manager = policyPorts("alice")
+		Expect(anyone).NotTo(ContainElement("TCP/30017"))
+		Expect(manager).To(ConsistOf("TCP/30017"))
 
 		r.ProbeExternal = true
 		reconcile("alice")
@@ -316,9 +360,13 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(port).To(Equal(int32(30017)))
 		Expect(allowed).To(Equal("lan"))
 		Expect(ownerSecrets()).To(BeEmpty())
+		anyone, _ = policyPorts("alice")
+		Expect(anyone).To(ContainElement("TCP/30017"))
 		reconcile("alice")
 		port, _ = webPort()
 		Expect(port).To(BeZero())
+		_, manager = policyPorts("alice")
+		Expect(manager).To(ConsistOf("TCP/30017"))
 	})
 
 	It("gives the next instance the next window", func() {

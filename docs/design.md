@@ -69,6 +69,7 @@ The controller owns, per instance:
 - a Deployment with one replica, zero when stopped, strategy Recreate
   because the home and the ports belong to one pod at a time,
 - a Service with six ports, the web UI port only with `expose.webUI`,
+- a NetworkPolicy on the pod, ingress only: see Network below,
 - a Role and RoleBinding for the owner: read the namespace's desktops,
   update and patch this one, and get the admin Secret while
   `expose.webUI` is on.
@@ -158,6 +159,31 @@ The operator never changes env for an address that arrives later, like
 a LoadBalancer IP. Sunshine only accepts web UI changes from origins it
 was started with, so the web UI behind a LoadBalancer needs
 `expose.host`.
+
+## Network
+
+Without a policy any pod in the cluster reached any desktop on its pod
+IP, the admin API on base+1 included.
+Each desktop has a NetworkPolicy on its pod, ingress only:
+
+- The six Moonlight ports from any source. NodePort and load balancer
+  traffic arrives SNATed from node addresses; no ipBlock names clients.
+- The readiness probe is HTTP on base, one of the six. Kubernetes
+  admits the pod's own node regardless.
+- The web port from pods labeled `control-plane: controller-manager`
+  in the manager's namespace.
+- The web port from any source with `expose.webUI`, or for a manager
+  run with --probe-external, which comes in through a node port.
+
+kustomize prefixes the manager's namespace, so the manager reads it
+from `POD_NAMESPACE`, set through the downward API.
+A unit test holds `config/manager` to that variable and the pod label.
+Egress stays open: a desktop browses the internet.
+The policy is made before the Deployment: a new desktop never runs open.
+Cost: the manager may write any NetworkPolicy in the cluster, as it
+already may Roles. It has no delete; garbage collection removes them.
+envtest enforces no policy. Its tests prove the shape, a cluster the
+effect.
 
 ## Order of work
 

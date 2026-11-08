@@ -19,6 +19,7 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"os"
 	"time"
@@ -100,6 +101,14 @@ func main() {
 		setupLog.Info("probe-external: reaching desktops through their client address; " +
 			"every desktop's Service publishes its web UI port")
 	}
+	// kustomize picks the namespace, so the pod is told it.
+	managerNamespace := os.Getenv("POD_NAMESPACE")
+	if managerNamespace == "" && !probeExternal {
+		setupLog.Error(errors.New("POD_NAMESPACE is not set"),
+			"desktops admit the manager to their admin API by its namespace; "+
+				"set it, or pass --probe-external outside the cluster")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -157,6 +166,7 @@ func main() {
 		Client:                mgr.GetClient(),
 		Scheme:                mgr.GetScheme(),
 		ProbeExternal:         probeExternal,
+		ManagerNamespace:      managerNamespace,
 		APIReader:             mgr.GetAPIReader(),
 		SandboxSeccompProfile: sandboxSeccompProfile,
 	}).SetupWithManager(mgr); err != nil {

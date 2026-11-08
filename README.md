@@ -11,11 +11,12 @@ behalf.
 
 ## How it works
 
-    VdiInstance ──> Deployment (one desktop pod, or none when stopped)
-                ──> PersistentVolumeClaim (the home)
-                ──> Service (6 ports, 7 with the web UI; NodePort or LoadBalancer)
-                ──> Secret (Sunshine admin password)
-                ──> Role + RoleBinding for the owner
+    VdiInstance --> Deployment (one desktop pod, or none when stopped)
+                --> PersistentVolumeClaim (the home)
+                --> Service (6 ports, 7 with the web UI; NodePort or LoadBalancer)
+                --> NetworkPolicy (the pod takes nothing else)
+                --> Secret (Sunshine admin password)
+                --> Role + RoleBinding for the owner
 
 The PIN in `spec.pairing` goes to Sunshine's admin API on the pod IP.
 
@@ -53,7 +54,9 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
    `make run`, or `go run ./cmd/main.go --probe-external`, runs it
    outside the cluster; it then probes desktops through the client
    address instead of the pod IP, and every desktop publishes its web
-   UI port. For development only.
+   UI port to any source. For development only.
+   In the cluster the manager reads its namespace from `POD_NAMESPACE`,
+   set by `config/manager`; without it or `--probe-external` it exits.
 
 3. Create a desktop:
 
@@ -183,6 +186,16 @@ the cluster holds one of the seven ports.
 A pinned window that overlaps one already held is refused:
 NetworkReady is False, reason `PortConflict`, and the message names
 the holder.
+
+Each desktop has a NetworkPolicy:
+
+- Moonlight's six ports take any source: NodePort and load balancer
+  traffic arrives SNATed from node addresses. The kubelet's readiness
+  probe is on one of them, base.
+- The web UI port, base+1, takes only the manager's pods, by namespace
+  and pod label, unless the web UI is published.
+- Nothing else reaches the pod. Egress stays open: a desktop browses
+  the internet.
 
 Sunshine's admin web UI, on base+1, stays off the Service by default.
 The operator reaches Sunshine on the pod IP and needs no port for it.

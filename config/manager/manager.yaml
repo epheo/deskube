@@ -38,6 +38,11 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         image: controller:latest
         # A restart must not wait on the registry.
         # Deploy a sha- tag or a digest: a moving tag goes stale on the node.

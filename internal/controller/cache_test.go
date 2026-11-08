@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,7 @@ var _ = Describe("The manager's cache", Ordered, func() {
 			&rbacv1.RoleBinding{ObjectMeta: meta("-desktop")},
 			&appsv1.Deployment{ObjectMeta: meta("")},
 			&corev1.Service{ObjectMeta: meta("")},
+			&networkingv1.NetworkPolicy{ObjectMeta: meta("")},
 			&rbacv1.Role{ObjectMeta: meta("-owner")},
 			&rbacv1.RoleBinding{ObjectMeta: meta("-owner")},
 		}
@@ -98,6 +100,10 @@ var _ = Describe("The manager's cache", Ordered, func() {
 		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 			Name: "ours", Namespace: ns, Labels: map[string]string{labelManagedBy: managedBy},
 		}})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "theirs", Namespace: ns}})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{
+			Name: "ours", Namespace: ns, Labels: map[string]string{labelManagedBy: managedBy},
+		}})).To(Succeed())
 		pod := func(name string, labels map[string]string) *corev1.Pod {
 			return &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels},
@@ -111,6 +117,8 @@ var _ = Describe("The manager's cache", Ordered, func() {
 		// Objects of one kind reach the cache in the order they were made.
 		Eventually(func() error { return cached.Get(ctx, key("ours"), &corev1.Secret{}) }).Should(Succeed())
 		Expect(apierrors.IsNotFound(cached.Get(ctx, key("theirs"), &corev1.Secret{}))).To(BeTrue())
+		Eventually(func() error { return cached.Get(ctx, key("ours"), &networkingv1.NetworkPolicy{}) }).Should(Succeed())
+		Expect(apierrors.IsNotFound(cached.Get(ctx, key("theirs"), &networkingv1.NetworkPolicy{}))).To(BeTrue())
 		Eventually(func(g Gomega) {
 			pods := &corev1.PodList{}
 			g.Expect(cached.List(ctx, pods, client.InNamespace(ns))).To(Succeed())
@@ -140,6 +148,10 @@ var _ = Describe("The manager's cache", Ordered, func() {
 		for _, child := range children() {
 			Expect(k8sClient.Get(ctx, key(child.GetName()), child)).To(Succeed())
 			switch child.(type) {
+			case *networkingv1.NetworkPolicy:
+				// It made none.
+				Expect(k8sClient.Delete(ctx, child)).To(Succeed())
+				continue
 			case *corev1.PersistentVolumeClaim, *appsv1.Deployment, *corev1.Service:
 				child.SetLabels(map[string]string{labelInstance: "erin"})
 			default:

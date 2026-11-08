@@ -29,6 +29,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -85,7 +86,10 @@ type VdiInstanceReconciler struct {
 	// ProbeExternal probes through the client address instead of the
 	// pod IP, for a manager running outside the cluster.
 	ProbeExternal bool
-	Probe         ProbeFunc
+	// ManagerNamespace is where the manager's pods run; a desktop admits
+	// them to its admin API by it.
+	ManagerNamespace string
+	Probe            ProbeFunc
 	// AdminClient builds the Sunshine admin API client; tests inject a fake.
 	AdminClient NewPairingClient
 	// APIReader reads past the cache, which holds only what DeskuBe made.
@@ -106,6 +110,7 @@ type VdiInstanceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets;services;persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes;pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,resourceNames="system:openshift:scc:nested-container",verbs=get;bind
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 
@@ -158,6 +163,10 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 			return r.releaseWindow(ctx, vdi, err)
 		}
 		return r.fail(ctx, vdi, ConditionNetworkReady, "ServiceApply", err)
+	}
+	// Before the Deployment, so a new desktop never runs open.
+	if err := r.ensureNetworkPolicy(ctx, vdi); err != nil {
+		return r.fail(ctx, vdi, ConditionNetworkReady, "NetworkPolicyApply", err)
 	}
 
 	if err := r.ensureAdminSecret(ctx, vdi); err != nil {
@@ -550,12 +559,17 @@ func (r *VdiInstanceReconciler) ensureService(
 		if vdi.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 			svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 		}
-		// A manager outside the cluster reaches the admin API through the Service.
-		web := vdi.Spec.Expose.WebUI || r.ProbeExternal
-		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort, web)
+		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort, r.webOpen(vdi))
 		return controllerutil.SetControllerReference(vdi, svc, r.Scheme)
 	})
 	return svc, err
+}
+
+// webOpen says whether the web port takes any source, on the Service and
+// through the NetworkPolicy. A manager outside the cluster reaches the
+// admin API that way.
+func (r *VdiInstanceReconciler) webOpen(vdi *vdiv1alpha1.VdiInstance) bool {
+	return vdi.Spec.Expose.WebUI || r.ProbeExternal
 }
 
 // servicePorts maps each Sunshine port 1:1, so the desktop and the
@@ -966,6 +980,7 @@ func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.ServiceAccount{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Named("vdiinstance").
