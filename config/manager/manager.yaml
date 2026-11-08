@@ -63,12 +63,13 @@ spec:
         # Measured in envtest, next to 4000 Secrets and 1000 Pods not ours:
         # 52Mi without desktops, 82Mi with 239, about 125Ki more per desktop.
         # The request holds the 86 desktops NodePort allows, the limit about 1500.
+        # A 10m CPU request let a loaded node starve the lease renewal.
         resources:
           limits:
             cpu: 500m
             memory: 256Mi
           requests:
-            cpu: 10m
+            cpu: 50m
             memory: 96Mi
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
