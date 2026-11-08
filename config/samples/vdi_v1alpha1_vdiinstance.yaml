@@ -3,17 +3,9 @@ kind: VdiInstance
 metadata:
   name: alice-desk
 spec:
-  image: ghcr.io/epheo/deskube-desktop:main
+  # Image, resources, home and idle timeout come from the class.
+  className: desktop
   owner: alice
-  idleTimeout: 1h
-  resources:
-    requests:
-      cpu: "2"
-      memory: 4Gi
-    limits:
-      memory: 4Gi
-  home:
-    size: 20Gi
   # Moonlight shows a PIN when you add the desktop's address. Put it here
   # instead of typing it inside the desktop; the operator removes it once
   # the pairing succeeded or failed, and status.pairing says which.

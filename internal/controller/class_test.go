@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -169,6 +170,18 @@ var _ = Describe("Desktop classes", Ordered, func() {
 
 		err = k8sClient.Create(ctx, &vdiv1alpha1.VdiClass{ObjectMeta: metav1.ObjectMeta{Name: "imageless"}}, client.DryRunAll)
 		Expect(apierrors.IsInvalid(err)).To(BeTrue())
+	})
+
+	It("accepts the samples", func() {
+		samples := filepath.Join("..", "..", "config", "samples")
+		sampleClass := &vdiv1alpha1.VdiClass{}
+		Expect(readManifest(filepath.Join(samples, "vdi_v1alpha1_vdiclass.yaml"), sampleClass)).To(Succeed())
+		Expect(k8sClient.Create(ctx, sampleClass, client.DryRunAll)).To(Succeed())
+		sample := &vdiv1alpha1.VdiInstance{}
+		Expect(readManifest(filepath.Join(samples, "vdi_v1alpha1_vdiinstance.yaml"), sample)).To(Succeed())
+		Expect(sample.Spec.ClassName).To(Equal(sampleClass.Name))
+		sample.Namespace = ns
+		Expect(k8sClient.Create(ctx, sample, client.DryRunAll)).To(Succeed())
 	})
 
 	It("gives an instance that names only a class the class's settings", func() {
