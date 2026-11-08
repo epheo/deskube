@@ -72,9 +72,9 @@ type ExposeSpec struct {
 
 // StreamSpec is passed to the session inside the desktop.
 type StreamSpec struct {
-	// Encoder is chosen by the image when empty: vaapi when the desktop
-	// has a GPU, software otherwise.
-	// +kubebuilder:validation:Enum=software;vaapi
+	// Encoder is chosen by the image when empty: nvenc on an NVIDIA GPU,
+	// vaapi on another GPU, software without one.
+	// +kubebuilder:validation:Enum=software;vaapi;nvenc
 	// +optional
 	Encoder string `json:"encoder,omitempty"`
 	// KeyboardLayout is up to four XKB layout names separated by commas,

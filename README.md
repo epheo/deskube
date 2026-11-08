@@ -360,8 +360,11 @@ cluster: the deskube-images README.
 
 ## Known gaps
 
-- The operator does not hand a GPU to the pod yet; cluster desktops
-  render and encode on the CPU. With podman the GPU path works.
+- No desktop has had a GPU on a cluster yet; there they rendered and
+  encoded on the CPU. With podman the GPU path works.
+  A GPU is asked for in `spec.resources.limits`, such as
+  `nvidia.com/gpu.shared: 1`. An NVIDIA node needs the changes in
+  `docs/gpu-nvidia.md` first.
 - The gaming images also need a GPU, see the first gap.
 - The home volume and the admin password file are group owned through
   OpenShift's fsGroup; plain Kubernetes needs one set.

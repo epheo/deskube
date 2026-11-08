@@ -33,7 +33,7 @@ export interface Expose extends ClassExpose {
 }
 
 export interface Stream {
-  encoder?: 'software' | 'vaapi';
+  encoder?: 'software' | 'vaapi' | 'nvenc';
   keyboardLayout?: string;
 }
 

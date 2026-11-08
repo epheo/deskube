@@ -49,7 +49,7 @@ One desktop for one owner.
       running:     true                          power state, idle shutdown flips it
       idleTimeout: 30m                           optional
       expose:      {type: NodePort | LoadBalancer, basePort, host, webUI}
-      stream:      {encoder: software | vaapi, keyboardLayout}
+      stream:      {encoder: software | vaapi | nvenc, keyboardLayout}
       nestedSandboxes: false                    let Steam, Flatpak, podman sandbox themselves
       placement:   {nodeSelector, tolerations, affinity, priorityClassName, runtimeClassName}
       pairing:     {pin: "4693", clientName}     the PIN Moonlight shows; removed once handled

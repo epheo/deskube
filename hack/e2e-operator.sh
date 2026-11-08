@@ -11,6 +11,8 @@ OWNER=${OWNER:-$(oc whoami)}
 WORK=${WORK:-$(mktemp -d)}
 CACHE=$WORK/moonlight-cache
 ML=${ML:-ghcr.io/epheo/deskube-moonlight-cli:main}
+# GPU=nvidia.com/gpu.shared asks one of that resource for the desktop.
+GPU_LIMIT=${GPU:+", $GPU: \"1\""}
 mkdir -p "$CACHE"
 
 ml() { podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i "$ML" "$@"; }
@@ -27,7 +29,7 @@ spec:
   owner: $OWNER
   resources:
     requests: {cpu: "${CPU:-2}", memory: 4Gi}
-    limits: {memory: 4Gi}
+    limits: {memory: 4Gi$GPU_LIMIT}
 EOF
 for _ in $(seq 1 60); do
   phase=$(oc -n "$NS" get vdiinstance "$NAME" -o jsonpath='{.status.phase}' 2>/dev/null || true)

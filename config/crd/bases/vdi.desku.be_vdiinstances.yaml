@@ -1224,11 +1224,12 @@ spec:
                 properties:
                   encoder:
                     description: |-
-                      Encoder is chosen by the image when empty: vaapi when the desktop
-                      has a GPU, software otherwise.
+                      Encoder is chosen by the image when empty: nvenc on an NVIDIA GPU,
+                      vaapi on another GPU, software without one.
                     enum:
                     - software
                     - vaapi
+                    - nvenc
                     type: string
                   keyboardLayout:
                     description: |-
