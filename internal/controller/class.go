@@ -19,19 +19,31 @@ package controller
 import (
 	"cmp"
 	"context"
+	"slices"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
 )
 
-const classNameField = ".spec.className"
+const (
+	classNameField = ".spec.className"
+	classInUse     = "vdi.desku.be/class-in-use"
+)
 
-// +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiclasses,verbs=get;list;watch
+// Patch is for the finalizer alone. Cost: RBAC cannot tell fields
+// apart, so the manager could change any class.
+// +kubebuilder:rbac:groups=vdi.desku.be,resources=vdiclasses,verbs=get;list;watch;patch
 
 // resolve is what a desktop runs with: each field the instance sets,
 // else its class's, else the default. class is nil when the instance
@@ -104,13 +116,76 @@ func (r *VdiInstanceReconciler) classOf(
 	return class, nil
 }
 
-// waitForClass changes nothing but the status: a desktop not started
-// stays so, a running one is left alone. The class watch brings the
-// instance back.
+// waitForClass reports the missing class. A desktop not started stays
+// so, a running one keeps its pod, and only stopping still works. The
+// class watch brings the instance back.
 func (r *VdiInstanceReconciler) waitForClass(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (ctrl.Result, error) {
+	if vdi.Spec.Running != nil && !*vdi.Spec.Running {
+		if err := r.stopDeployment(ctx, vdi); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	setCondition(vdi, ConditionReady, false, "ClassNotFound", "VdiClass "+vdi.Spec.ClassName+" does not exist")
 	vdi.Status.Phase = vdiv1alpha1.PhaseProvisioning
 	return ctrl.Result{}, r.Status().Update(ctx, vdi)
+}
+
+func (r *VdiInstanceReconciler) stopDeployment(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
+	dep := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKey{Name: vdi.Name, Namespace: vdi.Namespace}, dep)
+	if apierrors.IsNotFound(err) || (err == nil && !metav1.IsControlledBy(dep, vdi)) {
+		return nil
+	}
+	if err != nil || ptr.Deref(dep.Spec.Replicas, 1) == 0 {
+		return err
+	}
+	stopped := client.MergeFrom(dep.DeepCopy())
+	dep.Spec.Replicas = ptr.To(int32(0))
+	return r.Patch(ctx, dep, stopped)
+}
+
+// reconcileClass holds a class with a finalizer while a desktop names
+// it: without its class a desktop can only be stopped.
+func (r *VdiInstanceReconciler) reconcileClass(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	class := &vdiv1alpha1.VdiClass{}
+	if err := r.Get(ctx, req.NamespacedName, class); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+	desktops := &vdiv1alpha1.VdiInstanceList{}
+	if err := r.List(ctx, desktops, client.MatchingFields{classNameField: class.Name}); err != nil {
+		return reconcile.Result{}, err
+	}
+	used := len(desktops.Items) > 0
+	held := controllerutil.ContainsFinalizer(class, classInUse)
+	if !used && held {
+		// Past the cache: a desktop it has not seen yet would lose its class.
+		if err := r.reader().List(ctx, desktops); err != nil {
+			return reconcile.Result{}, err
+		}
+		used = slices.ContainsFunc(desktops.Items, func(d vdiv1alpha1.VdiInstance) bool {
+			return d.Spec.ClassName == class.Name
+		})
+	}
+	// The API server takes no new finalizer on an object being deleted.
+	if used == held || (used && !class.DeletionTimestamp.IsZero()) {
+		return reconcile.Result{}, nil
+	}
+	patch := client.MergeFromWithOptions(class.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	if used {
+		controllerutil.AddFinalizer(class, classInUse)
+	} else {
+		controllerutil.RemoveFinalizer(class, classInUse)
+	}
+	return reconcile.Result{}, r.Patch(ctx, class, patch)
+}
+
+// classOfInstance names the class an instance event concerns. An update
+// maps the old object too, so a class an instance leaves hears of it.
+func classOfInstance(_ context.Context, obj client.Object) []reconcile.Request {
+	if name := obj.(*vdiv1alpha1.VdiInstance).Spec.ClassName; name != "" {
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: name}}}
+	}
+	return nil
 }
 
 // desktopsOfClass names the instances a change to the class concerns.

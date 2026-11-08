@@ -713,6 +713,41 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(*dep.Spec.Replicas).To(Equal(int32(0)))
 	})
 
+	It("still stops a desktop whose class went away", func() {
+		// No class controller runs here, so no finalizer: as for a class
+		// made before it, or one whose finalizer was removed by hand.
+		class := &vdiv1alpha1.VdiClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "ivy-class"},
+			Spec:       vdiv1alpha1.VdiClassSpec{Image: "registry.example/ivy:1"},
+		}
+		Expect(k8sClient.Create(ctx, class)).To(Succeed())
+		ivy := &vdiv1alpha1.VdiInstance{
+			ObjectMeta: metav1.ObjectMeta{Name: "ivy", Namespace: testNS},
+			// Pinned high: the specs below count on the next windows.
+			Spec: vdiv1alpha1.VdiInstanceSpec{ClassName: "ivy-class", Expose: vdiv1alpha1.ExposeSpec{BasePort: 32448}},
+		}
+		Expect(k8sClient.Create(ctx, ivy)).To(Succeed())
+		reconcile("ivy")
+		dep := &appsv1.Deployment{}
+		get("ivy", dep)
+		Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
+
+		Expect(k8sClient.Delete(ctx, class)).To(Succeed())
+		reconcile("ivy")
+		get("ivy", ivy)
+		Expect(meta.FindStatusCondition(ivy.Status.Conditions, ConditionReady).Reason).To(Equal("ClassNotFound"))
+		get("ivy", dep)
+		Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
+
+		ivy.Spec.Running = ptr.To(false)
+		Expect(k8sClient.Update(ctx, ivy)).To(Succeed())
+		reconcile("ivy")
+		get("ivy", dep)
+		Expect(*dep.Spec.Replicas).To(BeZero())
+		get("ivy", ivy)
+		Expect(meta.FindStatusCondition(ivy.Status.Conditions, ConditionReady).Reason).To(Equal("ClassNotFound"))
+	})
+
 	Context("next to Services DeskuBe does not own", Ordered, func() {
 		var raw, cacheLike client.WithWatch
 		reconcileErr := func(name string) error {

@@ -143,9 +143,14 @@ nestedSandboxes do.
 
 A desktop whose class does not exist waits: phase Provisioning, Ready
 False, reason `ClassNotFound`. It starts when the class appears.
-Deleting a class leaves its running desktops as they are and unmanaged
-until it is back: no idle shutdown, no pairing, `running: false` does
-nothing.
+
+A class in use cannot go away: the finalizer
+`vdi.desku.be/class-in-use` holds it while any desktop names it.
+Deleting it leaves it Terminating until the last desktop naming it is
+deleted or names another class.
+A class gone anyway, from before this release or with the finalizer
+removed by hand, leaves its desktops `ClassNotFound`: their pods keep
+running and `running: false` still stops them, nothing else works.
 
 An instance made before classes may carry `expose.type: NodePort` or
 `home.size: 20Gi`, written by the CRD defaults then; they beat the

@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
 	"github.com/epheo/deskube/internal/sunshine"
@@ -1013,10 +1014,19 @@ func labelManaged(obj metav1.Object, instance string) {
 }
 
 // SetupWithManager registers the controller, its owned resources, and
-// the classes its instances name.
+// the classes its instances name. A second controller keeps those
+// classes from going away; both read the one index.
 func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := mgr.GetFieldIndexer().IndexField(
 		context.Background(), &vdiv1alpha1.VdiInstance{}, classNameField, indexClassName)
+	if err != nil {
+		return err
+	}
+	err = ctrl.NewControllerManagedBy(mgr).
+		For(&vdiv1alpha1.VdiClass{}).
+		Watches(&vdiv1alpha1.VdiInstance{}, handler.EnqueueRequestsFromMapFunc(classOfInstance)).
+		Named("vdiclass").
+		Complete(reconcile.Func(r.reconcileClass))
 	if err != nil {
 		return err
 	}

@@ -89,6 +89,7 @@ rules:
   verbs:
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - vdi.desku.be

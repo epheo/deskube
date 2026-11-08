@@ -26,6 +26,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,6 +37,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
@@ -322,5 +325,76 @@ var _ = Describe("Desktop classes", Ordered, func() {
 				g.Expect(dep.ResourceVersion).To(Equal(rv), name)
 			}
 		}, "2s", "200ms").Should(Succeed())
+	})
+
+	It("needs patch on classes for the finalizer, not update", func() {
+		role := &rbacv1.ClusterRole{}
+		Expect(readManifest(filepath.Join("..", "..", "config", "rbac", "role.yaml"), role)).To(Succeed())
+		role.Name = "class-check-manager"
+		Expect(k8sClient.Create(ctx, role)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, role)
+		binding := &rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: role.Name},
+			Subjects:   []rbacv1.Subject{{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: role.Name}},
+			RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: role.Name},
+		}
+		Expect(k8sClient.Create(ctx, binding)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, binding)
+		user, err := testEnv.AddUser(envtest.User{Name: role.Name}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		manager, err := client.New(user.Config(), client.Options{Scheme: scheme.Scheme})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Its own finalizer would be the class controller's to remove.
+		const other = "example.com/check"
+		class("rbac-check", vdiv1alpha1.VdiClassSpec{Image: testImage})
+		c := &vdiv1alpha1.VdiClass{}
+		Eventually(func(g Gomega) {
+			g.Expect(manager.Get(ctx, client.ObjectKey{Name: "rbac-check"}, c)).To(Succeed())
+			patch := client.MergeFromWithOptions(c.DeepCopy(), client.MergeFromWithOptimisticLock{})
+			controllerutil.AddFinalizer(c, other)
+			g.Expect(manager.Patch(ctx, c, patch)).To(Succeed())
+		}, "10s", "100ms").Should(Succeed())
+		Expect(apierrors.IsForbidden(manager.Update(ctx, c))).To(BeTrue())
+		patch := client.MergeFromWithOptions(c.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		controllerutil.RemoveFinalizer(c, other)
+		Expect(manager.Patch(ctx, c, patch)).To(Succeed())
+	})
+
+	It("keeps a class while a desktop names it", func() {
+		classKey := func(name string) client.ObjectKey { return client.ObjectKey{Name: name} }
+		class("left", vdiv1alpha1.VdiClassSpec{Image: "registry.example/left:1"})
+		class("emptied", vdiv1alpha1.VdiClassSpec{Image: "registry.example/emptied:1"})
+		desktop("leaves", 32512, vdiv1alpha1.VdiInstanceSpec{ClassName: "left"})
+		desktop("goes", 32480, vdiv1alpha1.VdiInstanceSpec{ClassName: "emptied"})
+		for _, name := range []string{"left", "emptied"} {
+			c := &vdiv1alpha1.VdiClass{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, classKey(name), c)).To(Succeed())
+				g.Expect(c.Finalizers).To(ContainElement(classInUse))
+			}, "10s", "100ms").Should(Succeed(), name)
+			Expect(k8sClient.Delete(ctx, c)).To(Succeed())
+		}
+		Consistently(func(g Gomega) {
+			for _, name := range []string{"left", "emptied"} {
+				c := &vdiv1alpha1.VdiClass{}
+				g.Expect(k8sClient.Get(ctx, classKey(name), c)).To(Succeed(), name)
+				g.Expect(c.DeletionTimestamp).NotTo(BeNil(), name)
+			}
+		}, "1s", "100ms").Should(Succeed())
+
+		leaves := &vdiv1alpha1.VdiInstance{}
+		Expect(k8sClient.Get(ctx, key("leaves"), leaves)).To(Succeed())
+		leaves.Spec.ClassName = "office"
+		Expect(k8sClient.Update(ctx, leaves)).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, classKey("left"), &vdiv1alpha1.VdiClass{}))
+		}, "10s", "100ms").Should(BeTrue())
+
+		goes := &vdiv1alpha1.VdiInstance{ObjectMeta: metav1.ObjectMeta{Name: "goes", Namespace: ns}}
+		Expect(k8sClient.Delete(ctx, goes)).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, classKey("emptied"), &vdiv1alpha1.VdiClass{}))
+		}, "10s", "100ms").Should(BeTrue())
 	})
 })

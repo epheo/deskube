@@ -181,7 +181,20 @@ home applies only to a claim not made yet.
 A missing class: phase Provisioning, Ready False, reason
 ClassNotFound, and nothing else touched. No requeue: the class watch
 wakes the instance when the class appears.
-A running desktop whose class is deleted keeps its pod, unmanaged.
+
+So a class in use cannot go away. A second controller puts the
+finalizer `vdi.desku.be/class-in-use` on a class while any instance
+names it, and removes it once none does.
+It watches instances and maps an update's old object too, so a class
+an instance leaves hears of it.
+Before removing the finalizer it lists instances past the cache: one
+the cache has not seen yet would lose its class.
+A class gone anyway, made before the finalizer or with it removed by
+hand: its desktops keep their pods and report ClassNotFound, and
+`running: false` still scales the Deployment to zero.
+Cost: patch on vdiclasses. RBAC cannot narrow it to the finalizer, so
+the manager could change any class. A test proves patch suffices and
+update is not granted.
 
 Placement goes to the pod as is. Unset is nil, as before placement
 existed, so a desktop without one keeps its pod.
