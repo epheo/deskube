@@ -96,6 +96,12 @@ own desktop.
 RBAC by resourceName already keeps it there; the VdiPairing it replaces
 let any owner pair with any desktop in a shared namespace.
 
+Reading is another matter: list ignores resourceNames, so owners in one
+namespace see each other's desktops, a pending PIN included.
+One can pair a client of their own with it before the owner's does.
+RBAC cannot hide one field, and DeskuBe does not try.
+Give owners who do not trust each other a namespace each.
+
 While the desktop is Ready, the controller lists pending requests with
 `GET /api/pin` on the pod IP and submits the PIN to each with
 `POST /api/pin`.

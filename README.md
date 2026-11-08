@@ -113,6 +113,11 @@ Every other field, and the finalizers, stay with admins: whoever may
 create desktops there, the manager included.
 The policy needs Kubernetes 1.30 or later, OpenShift 4.17 or later.
 
+Owners in one namespace can list each other's desktops.
+One can read another's pending `spec.pairing.pin` and pair a client of
+their own with it before the owner's Moonlight does.
+Give owners who do not trust each other a namespace each.
+
 ## Limits per desktop
 
 - CPU and memory: `spec.resources`, enforced by the kubelet. Request
@@ -236,8 +241,7 @@ podman, no cluster: the desku.be-images README.
   desktops, linked to its default service account or named in
   `spec.imagePullSecrets`.
 - A PIN approves the first waiting client Sunshine accepts it for.
-  Owners who share a namespace can read each other's pending PIN; one
-  could race the owner's Moonlight with a client that sends it.
+  Whoever can read it can race the owner's Moonlight: see Owners.
 
 ## License
 
