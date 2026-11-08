@@ -5,6 +5,7 @@ import {
   Button,
   ClipboardCopy,
   ClipboardCopyVariant,
+  Content,
   EmptyState,
   EmptyStateBody,
   Label,
@@ -311,7 +312,10 @@ const DesktopsPage: FC = () => {
       {deleting && (
         <Modal variant={ModalVariant.small} isOpen onClose={() => setDeleting(null)} aria-label="Delete desktop">
           <ModalHeader title={`Delete ${deleting.metadata?.name}?`} titleIconVariant="warning" />
-          <ModalBody>The VM and its disk are deleted with it. This cannot be undone.</ModalBody>
+          <ModalBody>
+            <Content component="p">The desktop and its home volume are deleted, every file in the home with them.</Content>
+            <Content component="p">Stop the desktop instead to keep its files.</Content>
+          </ModalBody>
           <ModalFooter>
             <Button variant="danger" onClick={confirmDelete}>
               Delete
