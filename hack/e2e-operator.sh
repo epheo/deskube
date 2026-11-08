@@ -22,10 +22,10 @@ metadata:
   name: $NAME
 spec:
   image: $IMAGE
-  imagePullPolicy: Always
+  imagePullPolicy: ${PULL:-Always}
   owner: $OWNER
   resources:
-    requests: {cpu: "2", memory: 4Gi}
+    requests: {cpu: "${CPU:-2}", memory: 4Gi}
     limits: {memory: 4Gi}
 EOF
 for _ in $(seq 1 60); do
