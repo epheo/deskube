@@ -353,9 +353,10 @@ address that arrives later.
     make lint
     hack/e2e-operator.sh       # a desktop, pairing, a stream, on a cluster
 
-`hack/e2e-operator.sh` streams with the `moonlight-cli` image from
-desku.be-images. Design notes: `docs/design.md`; by hand results with
-podman, no cluster: the desku.be-images README.
+Desktop images: github.com/epheo/deskube-images.
+`hack/e2e-operator.sh` streams with its `deskube-moonlight-cli` image.
+Design notes: `docs/design.md`; by hand results with podman, no
+cluster: the deskube-images README.
 
 ## Known gaps
 

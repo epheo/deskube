@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Operator level proof: a VdiInstance becomes a desktop pod, its
 # spec.pairing carries the PIN, and a headless Moonlight receives video.
-# Needs the manager running (make run or a deployment) and the
-# moonlight-cli image from the desku.be-images repository.
+# Needs the manager running (make run or a deployment). ML=moonlight-cli
+# takes the client built locally from github.com/epheo/deskube-images.
 set -euo pipefail
 NS=${NS:-deskube-dev}
 NAME=${NAME:-desk-op}
@@ -10,9 +10,10 @@ IMAGE=${IMAGE:-ghcr.io/epheo/deskube-desktop:main}
 OWNER=${OWNER:-$(oc whoami)}
 WORK=${WORK:-$(mktemp -d)}
 CACHE=$WORK/moonlight-cache
+ML=${ML:-ghcr.io/epheo/deskube-moonlight-cli:main}
 mkdir -p "$CACHE"
 
-ml() { podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i moonlight-cli "$@"; }
+ml() { podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i "$ML" "$@"; }
 
 echo "== instance"
 oc -n "$NS" apply -f - <<EOF
@@ -68,10 +69,10 @@ else
 fi
 
 echo "== stream (25s)"
-timeout 25 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i --entrypoint stdbuf moonlight-cli \
+timeout 25 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i --entrypoint stdbuf "$ML" \
   -oL -eL moonlight stream -port "$PORT" -platform fake -viewonly -app Desktop \
   -width 1920 -height 1080 -fps 60 -bitrate 10000 -verbose "$HOST" > "$WORK/stream.log" 2>&1 || true
-timeout 20 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i moonlight-cli quit -port "$PORT" "$HOST" > /dev/null 2>&1 || true
+timeout 20 podman run --rm --network host -v "$CACHE:/root/.cache/moonlight:Z" -i "$ML" quit -port "$PORT" "$HOST" > /dev/null 2>&1 || true
 grep -E "first audio packet|Video frames" "$WORK/stream.log"
 echo "== session state seen by the operator"
 sleep 3

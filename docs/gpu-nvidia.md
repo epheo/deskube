@@ -67,7 +67,7 @@ What those packages hold (V, NVIDIA's EL10 repository read 2026-11-08):
 - nvidia-container-toolkit-base 1.20.1, `nvidia-cdi-refresh.service`: creates the control nodes, then runs `nvidia-ctk cdi generate` into `/var/run/cdi/nvidia.yaml`.
 - nvidia-driver-selinux 0.1-3, pulled in by nvidia-kmod-common: only lets `systemd_sleep_t` use tmp files (decompiled with `/usr/libexec/selinux/hll/pp`). Nothing for containers.
 
-### Images (V, desku.be-images repository)
+### Images (V, deskube-images repository)
 
 - `desk-session:71` defaults the render node to `/dev/dri/renderD128`.
 - `desk-session:87-96`: with a render node, wlroots on it, `encoder = vaapi`, `capture = wlr`; without, pixman, portal, software.
@@ -700,7 +700,7 @@ Also: no 32-bit NVIDIA userspace for Steam; DRM master through the card node.
 
 Repositories and packages:
 
-- desku.be-images at 08e89ef: `README.md`, `base/Containerfile`, `base/pins`, `base/rootfs/usr/local/bin/desk-session`, `steam/`.
+- github.com/epheo/deskube-images at fe4acce: `README.md`, `base/Containerfile`, `base/pins`, `base/rootfs/usr/local/bin/desk-session`, `steam/`.
 - NVIDIA EL10 CUDA repository, read 2026-11-08: https://developer.download.nvidia.com/compute/cuda/repos/rhel10/x86_64/
   (filelists; RPMs nvidia-kmod-common-615.71.09, nvidia-driver-selinux-0.1-3, nvidia-container-toolkit-base-1.20.1).
 
