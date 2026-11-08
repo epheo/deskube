@@ -25,7 +25,7 @@ import (
 // HomeSpec is the volume that keeps the desktop user's files, pairings
 // included, across restarts.
 type HomeSpec struct {
-	// +kubebuilder:default="20Gi"
+	// Size is 20Gi when empty.
 	// +optional
 	Size resource.Quantity `json:"size,omitempty"`
 	// StorageClassName is the cluster default when empty.
@@ -45,7 +45,7 @@ const (
 
 // ExposeSpec controls the Service in front of the desktop.
 type ExposeSpec struct {
-	// +kubebuilder:default=NodePort
+	// Type is NodePort when empty.
 	// +optional
 	Type ExposeType `json:"type,omitempty"`
 	// BasePort pins the Sunshine base port. Allocated when empty.

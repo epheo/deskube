@@ -71,8 +71,7 @@ spec:
                       example a DNS name.
                     type: string
                   type:
-                    default: NodePort
-                    description: ExposeType selects how the stream reaches the client.
+                    description: Type is NodePort when empty.
                     enum:
                     - NodePort
                     - LoadBalancer
@@ -94,7 +93,7 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
-                    default: 20Gi
+                    description: Size is 20Gi when empty.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   storageClassName:
