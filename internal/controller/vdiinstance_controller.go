@@ -366,7 +366,7 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 	meta := metav1.ObjectMeta{Name: sandboxAccountName(vdi), Namespace: vdi.Namespace}
 	sa := &corev1.ServiceAccount{ObjectMeta: meta}
 	binding := &rbacv1.RoleBinding{ObjectMeta: meta}
-	if !vdi.Spec.NestedSandboxes {
+	if !ptr.Deref(vdi.Spec.NestedSandboxes, false) {
 		for _, obj := range []client.Object{binding, sa} {
 			if err := r.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
 				return nil, err
@@ -464,7 +464,7 @@ func fillPodSpec(
 	psc := pod.SecurityContext
 	psc.RunAsNonRoot = ptr.To(true)
 	psc.SeccompProfile = seccomp
-	sandbox := vdi.Spec.NestedSandboxes
+	sandbox := ptr.Deref(vdi.Spec.NestedSandboxes, false)
 	if sandbox {
 		pod.ServiceAccountName = sandboxAccountName(vdi)
 		pod.DeprecatedServiceAccount = pod.ServiceAccountName
@@ -581,7 +581,7 @@ func (r *VdiInstanceReconciler) ensureService(
 // through the NetworkPolicy. A manager outside the cluster reaches the
 // admin API that way.
 func (r *VdiInstanceReconciler) webOpen(vdi *vdiv1alpha1.VdiInstance) bool {
-	return vdi.Spec.Expose.WebUI || r.ProbeExternal
+	return ptr.Deref(vdi.Spec.Expose.WebUI, false) || r.ProbeExternal
 }
 
 // servicePorts maps each Sunshine port 1:1, so the desktop and the
@@ -637,7 +637,7 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 				ResourceNames: []string{vdi.Name}, Verbs: []string{"update", "patch"},
 			},
 		}
-		if vdi.Spec.Expose.WebUI {
+		if ptr.Deref(vdi.Spec.Expose.WebUI, false) {
 			role.Rules = append(role.Rules, rbacv1.PolicyRule{
 				APIGroups: []string{""}, Resources: []string{"secrets"},
 				ResourceNames: []string{adminSecretName(vdi)}, Verbs: verbsRead[:1],
@@ -959,7 +959,7 @@ func errString(err error) string {
 
 // webUIAllowed is what desk-session writes to Sunshine's origin_web_ui_allowed.
 func webUIAllowed(vdi *vdiv1alpha1.VdiInstance) string {
-	if vdi.Spec.Expose.WebUI {
+	if ptr.Deref(vdi.Spec.Expose.WebUI, false) {
 		return "wan"
 	}
 	return "lan"

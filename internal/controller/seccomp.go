@@ -77,7 +77,7 @@ type seccompChoice struct {
 func (r *VdiInstanceReconciler) chooseSeccomp(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
 ) (seccompChoice, error) {
-	if !vdi.Spec.NestedSandboxes {
+	if !ptr.Deref(vdi.Spec.NestedSandboxes, false) {
 		return seccompChoice{
 			Profile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 			Reason:  seccompRuntimeDefault,

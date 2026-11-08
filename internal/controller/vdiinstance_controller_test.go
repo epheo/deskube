@@ -341,7 +341,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		}
 		vdi := &vdiv1alpha1.VdiInstance{}
 		get("alice", vdi)
-		vdi.Spec.Expose.WebUI = true
+		vdi.Spec.Expose.WebUI = ptr.To(true)
 		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
 		reconcile("alice")
 		port, allowed := webPort()
@@ -353,7 +353,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(manager).To(BeEmpty())
 
 		get("alice", vdi)
-		vdi.Spec.Expose.WebUI = false
+		vdi.Spec.Expose.WebUI = ptr.To(false)
 		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
 		reconcile("alice")
 		port, allowed = webPort()
@@ -474,7 +474,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		})).To(Succeed())
 		carol := &vdiv1alpha1.VdiInstance{
 			ObjectMeta: metav1.ObjectMeta{Name: "carol", Namespace: testNS},
-			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, NestedSandboxes: true},
+			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, NestedSandboxes: ptr.To(true)},
 		}
 		Expect(k8sClient.Create(ctx, carol)).To(Succeed())
 		reconcile("carol")
@@ -530,7 +530,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		get("carol", carol)
 		Expect(meta.IsStatusConditionTrue(carol.Status.Conditions, ConditionSeccompFiltered)).To(BeTrue())
 
-		carol.Spec.NestedSandboxes = false
+		carol.Spec.NestedSandboxes = nil
 		Expect(k8sClient.Update(ctx, carol)).To(Succeed())
 		reconcile("carol")
 		key := types.NamespacedName{Name: "carol-desktop", Namespace: testNS}
@@ -557,7 +557,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 
 		dave := &vdiv1alpha1.VdiInstance{
 			ObjectMeta: metav1.ObjectMeta{Name: "dave", Namespace: testNS},
-			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, NestedSandboxes: true},
+			Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, NestedSandboxes: ptr.To(true)},
 		}
 		Expect(k8sClient.Create(ctx, dave)).To(Succeed())
 		// The mapper learns the new kind on its first miss.

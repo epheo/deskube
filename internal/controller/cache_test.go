@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -132,7 +133,7 @@ var _ = Describe("The manager's cache", Ordered, func() {
 		erin := &vdiv1alpha1.VdiInstance{
 			ObjectMeta: metav1.ObjectMeta{Name: "erin", Namespace: ns},
 			Spec: vdiv1alpha1.VdiInstanceSpec{
-				Image: testImage, Owner: "erin", NestedSandboxes: true,
+				Image: testImage, Owner: "erin", NestedSandboxes: ptr.To(true),
 				// The last window: the other specs count on the first ones.
 				Expose: vdiv1alpha1.ExposeSpec{BasePort: 32736},
 			},

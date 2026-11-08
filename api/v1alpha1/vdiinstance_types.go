@@ -62,7 +62,7 @@ type ExposeSpec struct {
 	// restarts the desktop. Behind a LoadBalancer the web UI also needs
 	// host: it refuses changes from an address it was not started with.
 	// +optional
-	WebUI bool `json:"webUI,omitempty"`
+	WebUI *bool `json:"webUI,omitempty"`
 }
 
 // StreamSpec is passed to the session inside the desktop.
@@ -127,7 +127,7 @@ type VdiInstanceSpec struct {
 	// it gives up is the runtime's default seccomp filter, which forbids
 	// nested namespaces, unless the manager was given a profile to use.
 	// +optional
-	NestedSandboxes bool `json:"nestedSandboxes,omitempty"`
+	NestedSandboxes *bool `json:"nestedSandboxes,omitempty"`
 	// Pairing approves the Moonlight client waiting for this PIN. The
 	// operator removes it once the pairing succeeded or failed.
 	// +optional

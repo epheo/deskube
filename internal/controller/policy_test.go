@@ -221,8 +221,8 @@ var _ = Describe("Owner policy", Ordered, func() {
 
 		vdi := stored("alice-desk")
 		Expect(vdi.Spec.Image).To(Equal(testImage))
-		Expect(vdi.Spec.NestedSandboxes).To(BeFalse())
-		Expect(vdi.Spec.Expose.WebUI).To(BeFalse())
+		Expect(vdi.Spec.NestedSandboxes).To(BeNil())
+		Expect(vdi.Spec.Expose.WebUI).To(BeNil())
 		Expect(vdi.Finalizers).To(BeEmpty())
 	})
 
@@ -239,6 +239,6 @@ var _ = Describe("Owner policy", Ordered, func() {
 		Expect(patch(admin, "alice-desk", spec(map[string]any{"image": "registry.example/desktop:2", "nestedSandboxes": true}))).To(Succeed())
 		vdi := stored("alice-desk")
 		Expect(vdi.Spec.Image).To(Equal("registry.example/desktop:2"))
-		Expect(vdi.Spec.NestedSandboxes).To(BeTrue())
+		Expect(*vdi.Spec.NestedSandboxes).To(BeTrue())
 	})
 })
