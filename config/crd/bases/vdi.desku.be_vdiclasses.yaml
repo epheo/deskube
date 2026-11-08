@@ -86,8 +86,9 @@ spec:
                     type: string
                 type: object
               idleTimeout:
-                description: IdleTimeout stops a desktop after this long without a
-                  session.
+                description: |-
+                  IdleTimeout stops a desktop after this long without a session.
+                  A desktop that sets 0s is never stopped.
                 type: string
               image:
                 description: Image is the desktops' container image.

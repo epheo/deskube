@@ -150,6 +150,7 @@ type VdiInstanceSpec struct {
 	Running *bool `json:"running,omitempty"`
 	// IdleTimeout stops the desktop after this long without a session.
 	// The operator sets running to false; set it back to true to resume.
+	// 0s never stops it, even when its class sets a timeout.
 	// +optional
 	IdleTimeout *metav1.Duration `json:"idleTimeout,omitempty"`
 	// +optional

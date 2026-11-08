@@ -41,6 +41,7 @@ type VdiClassSpec struct {
 	// +optional
 	Home HomeSpec `json:"home,omitempty"`
 	// IdleTimeout stops a desktop after this long without a session.
+	// A desktop that sets 0s is never stopped.
 	// +optional
 	IdleTimeout *metav1.Duration `json:"idleTimeout,omitempty"`
 	// Expose has no basePort or host: those belong to one desktop.

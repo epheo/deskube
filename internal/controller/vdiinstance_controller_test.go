@@ -701,6 +701,18 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(*vdi.Spec.Running).To(BeTrue())
 		Expect(vdi.Status.LastActive.Time).To(BeTemporally("~", time.Now(), 10*time.Second))
 
+		// Zero turns the timeout off, however long the desktop sat free.
+		vdi.Spec.IdleTimeout = &metav1.Duration{}
+		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
+		vdi.Status.LastActive = &metav1.Time{Time: time.Now().Add(-2 * time.Minute)}
+		Expect(k8sClient.Status().Update(ctx, vdi)).To(Succeed())
+		probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+		reconcile("alice")
+		get("alice", vdi)
+		Expect(*vdi.Spec.Running).To(BeTrue())
+		vdi.Spec.IdleTimeout = &metav1.Duration{Duration: time.Minute}
+		Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
+
 		vdi.Status.LastActive = &metav1.Time{Time: time.Now().Add(-2 * time.Minute)}
 		Expect(k8sClient.Status().Update(ctx, vdi)).To(Succeed())
 		probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}

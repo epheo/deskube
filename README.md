@@ -98,6 +98,7 @@ the session ends.
 `spec.running: false` removes the pod and keeps the home.
 `spec.idleTimeout: 30m` does that after half an hour without a session;
 the operator flips `running` to false, set it back to true to resume.
+`idleTimeout: 0s` never stops a desktop, even when its class sets a timeout.
 
 ## Classes
 

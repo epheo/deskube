@@ -851,7 +851,8 @@ func (r *VdiInstanceReconciler) trackIdle(
 	if vdi.Status.SessionState == sessionBusy || vdi.Status.LastActive == nil {
 		vdi.Status.LastActive = &now
 	}
-	if timeout == nil || vdi.Status.SessionState != "free" {
+	// Zero is how a desktop turns off its class's timeout.
+	if timeout == nil || timeout.Duration <= 0 || vdi.Status.SessionState != "free" {
 		return 0, nil
 	}
 	left := timeout.Duration - now.Sub(vdi.Status.LastActive.Time)

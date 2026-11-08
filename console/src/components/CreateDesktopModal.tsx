@@ -168,6 +168,7 @@ export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onCl
                 value=""
                 label={className ? fromClass(classIdle ? durationText(classIdle) : 'never') : 'Never'}
               />
+              {className && classIdle && <FormSelectOption value="0s" label="Never" />}
               {IDLE_OPTIONS.map((o) => (
                 <FormSelectOption key={o.value} value={o.value} label={o.label} />
               ))}

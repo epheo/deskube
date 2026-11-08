@@ -119,6 +119,7 @@ spec:
                 description: |-
                   IdleTimeout stops the desktop after this long without a session.
                   The operator sets running to false; set it back to true to resume.
+                  0s never stops it, even when its class sets a timeout.
                 type: string
               image:
                 description: Image is the desktop's container image, its class's when
