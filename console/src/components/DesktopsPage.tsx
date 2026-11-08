@@ -8,6 +8,7 @@ import {
   EmptyState,
   EmptyStateBody,
   Label,
+  LabelGroup,
   Modal,
   ModalBody,
   ModalFooter,
@@ -19,6 +20,7 @@ import {
   Toolbar,
   ToolbarContent,
   ToolbarItem,
+  Tooltip,
 } from '@patternfly/react-core';
 import { ActionsColumn, IAction, Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import {
@@ -31,9 +33,15 @@ import {
   useK8sModel,
   useK8sWatchResource,
 } from '@openshift-console/dynamic-plugin-sdk';
-import { ALL_NAMESPACES, VdiInstanceGVK } from '../constants';
+import {
+  ALL_NAMESPACES,
+  CONDITION_READY,
+  CONDITION_UPDATE_PENDING,
+  REASON_CLASS_NOT_FOUND,
+  VdiInstanceGVK,
+} from '../constants';
 import { useNamespaceSync } from '../hooks/useNamespaceSync';
-import { VdiInstance } from '../types';
+import { Condition, VdiInstance } from '../types';
 import { CreateDesktopModal } from './CreateDesktopModal';
 import { PairModal } from './PairModal';
 
@@ -63,6 +71,31 @@ export const webUiUrl = (address?: string): string | undefined => {
 };
 
 const isRunning = (vdi: VdiInstance): boolean => vdi.spec.running !== false;
+
+const condition = (vdi: VdiInstance, type: string): Condition | undefined =>
+  vdi.status?.conditions?.find((c) => c.type === type);
+
+const DesktopStatus: FC<{ vdi: VdiInstance }> = ({ vdi }) => {
+  const classMissing = condition(vdi, CONDITION_READY)?.reason === REASON_CLASS_NOT_FOUND;
+  const update = condition(vdi, CONDITION_UPDATE_PENDING);
+  return (
+    <LabelGroup numLabels={4}>
+      <Label color={phaseColor(vdi.status?.phase)}>{vdi.status?.phase ?? 'Pending'}</Label>
+      {classMissing && (
+        <Label color="red" variant="outline">
+          Class {vdi.spec.className} does not exist
+        </Label>
+      )}
+      {update?.status === 'True' && (
+        <Tooltip content={update.message}>
+          <Label color="orange" variant="outline">
+            Update waits for the session to end
+          </Label>
+        </Tooltip>
+      )}
+    </LabelGroup>
+  );
+};
 
 const DesktopsPage: FC = () => {
   useNamespaceSync();
@@ -159,6 +192,7 @@ const DesktopsPage: FC = () => {
                 <Th>Name</Th>
                 {!namespace && <Th>Namespace</Th>}
                 <Th>Status</Th>
+                <Th>Class</Th>
                 <Th>Session</Th>
                 <Th>Moonlight address</Th>
                 <Th>Owner</Th>
@@ -178,8 +212,9 @@ const DesktopsPage: FC = () => {
                   </Td>
                   {!namespace && <Td dataLabel="Namespace">{vdi.metadata?.namespace}</Td>}
                   <Td dataLabel="Status">
-                    <Label color={phaseColor(vdi.status?.phase)}>{vdi.status?.phase ?? 'Pending'}</Label>
+                    <DesktopStatus vdi={vdi} />
                   </Td>
+                  <Td dataLabel="Class">{vdi.spec.className ?? '-'}</Td>
                   <Td dataLabel="Session">{vdi.status?.sessionState ?? '-'}</Td>
                   <Td dataLabel="Moonlight address">
                     {vdi.status?.address ? (
