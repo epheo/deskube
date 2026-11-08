@@ -252,6 +252,8 @@ client address, and every Service keeps the web port. Dev only.
 status.webUI is the URL a browser opens: the address's host, base+1.
 It follows expose.webUI as resolved, not the open port: a port open
 only for a --probe-external manager is not one to send users to.
+The console offers the web UI from status.webUI alone: owners cannot
+read classes, so it could not resolve webUI for them.
 
 Changing env restarts the desktop, so changing webUI does too.
 The operator never changes env for an address that arrives later, like

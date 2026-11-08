@@ -45,8 +45,7 @@ import {
   VdiInstanceGVK,
 } from '../constants';
 import { useNamespaceSync } from '../hooks/useNamespaceSync';
-import { useVdiClasses } from '../hooks/useVdiClasses';
-import { Condition, VdiClass, VdiInstance } from '../types';
+import { Condition, VdiInstance } from '../types';
 import { CreateDesktopModal } from './CreateDesktopModal';
 import { PairModal } from './PairModal';
 
@@ -65,14 +64,6 @@ const phaseColor = (phase?: string): LabelColor => {
     default:
       return 'blue';
   }
-};
-
-// The Sunshine web UI sits one port above the base port.
-export const webUiUrl = (address?: string): string | undefined => {
-  if (!address) return undefined;
-  const i = address.lastIndexOf(':');
-  if (i < 0) return undefined;
-  return `https://${address.slice(0, i)}:${Number(address.slice(i + 1)) + 1}`;
 };
 
 const DESKTOPS_RESOURCE = 'vdiinstances';
@@ -130,36 +121,16 @@ const DesktopStatus: FC<{ vdi: VdiInstance }> = ({ vdi }) => {
   );
 };
 
-const useWebUiPublished = (vdi: VdiInstance, desktopClass: VdiClass | undefined, classUnknown: boolean): boolean => {
-  const own = vdi.spec.expose?.webUI;
-  const ask = own === undefined && !!vdi.spec.className && classUnknown;
-  // Owners cannot read classes. Their Role grants the admin Secret
-  // exactly while the web UI is published, so that answers for them.
-  const [secretReadable] = useAccessReview(
-    ask
-      ? { resource: 'secrets', verb: 'get', name: vdi.status?.adminSecret, namespace: vdi.metadata?.namespace }
-      : { verb: 'get' },
-    undefined,
-    true,
-  );
-  if (own !== undefined) return own;
-  if (!vdi.spec.className) return false;
-  return classUnknown ? secretReadable : desktopClass?.spec.expose?.webUI ?? false;
-};
-
 interface ActionsProps {
   vdi: VdiInstance;
-  desktopClass?: VdiClass;
-  classUnknown: boolean;
   onPair: () => void;
   onSetRunning: (running: boolean) => void;
   onDelete: () => void;
 }
 
-const DesktopActions: FC<ActionsProps> = ({ vdi, desktopClass, classUnknown, onPair, onSetRunning, onDelete }) => {
+const DesktopActions: FC<ActionsProps> = ({ vdi, onPair, onSetRunning, onDelete }) => {
   const ready = vdi.status?.phase === 'Ready';
-  const web = webUiUrl(vdi.status?.address);
-  const published = useWebUiPublished(vdi, desktopClass, classUnknown);
+  const web = vdi.status?.webUI;
   const [canDelete] = useAccessReview({
     group: VdiInstanceGVK.group,
     resource: DESKTOPS_RESOURCE,
@@ -169,9 +140,7 @@ const DesktopActions: FC<ActionsProps> = ({ vdi, desktopClass, classUnknown, onP
   const items: IAction[] = [
     { title: 'Pair a Moonlight client', onClick: onPair, isDisabled: !ready },
     isRunning(vdi) ? { title: 'Stop', onClick: () => onSetRunning(false) } : { title: 'Start', onClick: () => onSetRunning(true) },
-    ...(published
-      ? [{ title: 'Open Sunshine web UI', onClick: () => window.open(web, '_blank', 'noopener'), isDisabled: !web || !ready }]
-      : []),
+    ...(web ? [{ title: 'Open Sunshine web UI', onClick: () => window.open(web, '_blank', 'noopener'), isDisabled: !ready }] : []),
     ...(canDelete ? [{ isSeparator: true }, { title: 'Delete', onClick: onDelete }] : []),
   ];
   return <ActionsColumn items={items} />;
@@ -188,9 +157,7 @@ const DesktopsPage: FC = () => {
     [namespace],
   );
   const [desktops, loaded, loadError] = useK8sWatchResource<VdiInstance[]>(watch);
-  const [classes, , classesError] = useVdiClasses();
   const [canCreate] = useAccessReview({ group: VdiInstanceGVK.group, resource: DESKTOPS_RESOURCE, verb: 'create', namespace });
-  const classByName = useMemo(() => new Map(classes.map((c) => [c.metadata?.name, c])), [classes]);
 
   const [pairing, setPairing] = useState<VdiInstance | null>(null);
   const [deleting, setDeleting] = useState<VdiInstance | null>(null);
@@ -303,8 +270,6 @@ const DesktopsPage: FC = () => {
                   <Td isActionCell>
                     <DesktopActions
                       vdi={vdi}
-                      desktopClass={classByName.get(vdi.spec.className)}
-                      classUnknown={!!classesError}
                       onPair={() => setPairing(vdi)}
                       onSetRunning={(running) => setRunning(vdi, running)}
                       onDelete={() => setDeleting(vdi)}

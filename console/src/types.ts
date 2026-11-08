@@ -97,6 +97,8 @@ export interface VdiInstance extends K8sResourceCommon {
   status?: {
     phase?: Phase;
     address?: string;
+    // The operator resolved the class's webUI: empty means not published.
+    webUI?: string;
     basePort?: number;
     adminSecret?: string;
     sessionState?: 'free' | 'busy';

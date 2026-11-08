@@ -264,8 +264,8 @@ owner and last activity, and when they apply:
 - it runs sandboxes without a seccomp filter.
 
 Owners start, stop, and pair Moonlight by writing the PIN on the
-desktop. Open Sunshine web UI shows only while the web UI is
-published, by the desktop or else its class.
+desktop. Open Sunshine web UI shows only while `status.webUI` has a
+URL, and opens it.
 Admins also create and delete desktops.
 A new desktop picks a class or gives an image by hand.
 With a class, image, size and idle stop are optional overrides.
