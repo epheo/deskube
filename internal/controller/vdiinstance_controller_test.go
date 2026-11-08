@@ -348,6 +348,11 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			}
 			return names
 		}
+		webUI := func() string {
+			vdi := &vdiv1alpha1.VdiInstance{}
+			get("alice", vdi)
+			return vdi.Status.WebUI
+		}
 		vdi := &vdiv1alpha1.VdiInstance{}
 		get("alice", vdi)
 		vdi.Spec.Expose.WebUI = ptr.To(true)
@@ -360,6 +365,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		anyone, manager := policyPorts("alice")
 		Expect(anyone).To(ContainElement("TCP/30017"))
 		Expect(manager).To(BeEmpty())
+		Expect(webUI()).To(Equal("https://desk.example.org:30017"))
 
 		get("alice", vdi)
 		vdi.Spec.Expose.WebUI = ptr.To(false)
@@ -372,6 +378,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		anyone, manager = policyPorts("alice")
 		Expect(anyone).NotTo(ContainElement("TCP/30017"))
 		Expect(manager).To(ConsistOf("TCP/30017"))
+		Expect(webUI()).To(BeEmpty())
 
 		r.ProbeExternal = true
 		reconcile("alice")
@@ -382,6 +389,8 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(ownerSecrets()).To(BeEmpty())
 		anyone, _ = policyPorts("alice")
 		Expect(anyone).To(ContainElement("TCP/30017"))
+		// Open for the manager, not published: no user is sent there.
+		Expect(webUI()).To(BeEmpty())
 		reconcile("alice")
 		port, _ = webPort()
 		Expect(port).To(BeZero())

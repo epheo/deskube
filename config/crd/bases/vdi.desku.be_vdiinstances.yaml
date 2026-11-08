@@ -1348,6 +1348,11 @@ spec:
               sessionState:
                 description: SessionState is free or busy, from Sunshine serverinfo.
                 type: string
+              webUI:
+                description: |-
+                  WebUI is the URL a browser opens for Sunshine's web UI, empty while
+                  expose.webUI does not publish it.
+                type: string
             type: object
         required:
         - spec

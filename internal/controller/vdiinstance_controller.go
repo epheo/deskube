@@ -731,6 +731,11 @@ func (r *VdiInstanceReconciler) updateStatus(
 	host, err := r.clientHost(ctx, vdi, svc, pod)
 	if host != "" {
 		vdi.Status.Address = net.JoinHostPort(host, strconv.Itoa(int(vdi.Status.BasePort)))
+		vdi.Status.WebUI = "https://" + net.JoinHostPort(host, strconv.Itoa(int(vdi.Status.BasePort+sunshine.OffsetWeb)))
+	}
+	// Not webOpen: --probe-external opens the port to the manager, not to users.
+	if !ptr.Deref(settings.Expose.WebUI, false) {
+		vdi.Status.WebUI = ""
 	}
 	setCondition(vdi, ConditionNetworkReady, err == nil && host != "", "Address", errString(err))
 

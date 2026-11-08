@@ -269,6 +269,26 @@ var _ = Describe("Desktop classes", Ordered, func() {
 		}, "10s", "100ms").Should(Succeed())
 	})
 
+	It("reports the web UI its class publishes, and none when the instance turns it off", func() {
+		// A host of its own: these specs may run before any node exists.
+		desktop("office-web", 32384, vdiv1alpha1.VdiInstanceSpec{
+			ClassName: "office", Expose: vdiv1alpha1.ExposeSpec{Host: "web.example.org"},
+		})
+		desktop("office-dark", 32352, vdiv1alpha1.VdiInstanceSpec{
+			ClassName: "office", Expose: vdiv1alpha1.ExposeSpec{
+				Host: "dark.example.org", ClassExposeSpec: vdiv1alpha1.ClassExposeSpec{WebUI: ptr.To(false)},
+			},
+		})
+		Eventually(func(g Gomega) {
+			vdi := &vdiv1alpha1.VdiInstance{}
+			g.Expect(k8sClient.Get(ctx, key("office-web"), vdi)).To(Succeed())
+			g.Expect(vdi.Status.WebUI).To(Equal("https://web.example.org:32385"))
+			g.Expect(k8sClient.Get(ctx, key("office-dark"), vdi)).To(Succeed())
+			g.Expect(vdi.Status.Address).To(Equal("dark.example.org:32352"))
+			g.Expect(vdi.Status.WebUI).To(BeEmpty())
+		}, "10s", "100ms").Should(Succeed())
+	})
+
 	It("keeps a desktop whose class is missing from starting, and starts it once the class exists", func() {
 		desktop("waiting", 32576, vdiv1alpha1.VdiInstanceSpec{ClassName: "later"})
 		vdi := &vdiv1alpha1.VdiInstance{}

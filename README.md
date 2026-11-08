@@ -55,6 +55,7 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
    outside the cluster; it then probes desktops through the client
    address instead of the pod IP, and every desktop publishes its web
    UI port to any source. For development only.
+   `status.webUI` still names only the web UIs `expose.webUI` publishes.
    In the cluster the manager reads its namespace from `POD_NAMESPACE`,
    set by `config/manager`; without it or `--probe-external` it exits.
 
@@ -295,6 +296,8 @@ console operator. The console pods restart once, then the item appears.
 Conditions: PodReady, NetworkReady, StreamingReady, Ready. PodReady
 carries the kubelet's reason when a desktop does not start.
 `status.sessionState` is `free` or `busy`, read from Sunshine.
+`status.webUI` is the URL of Sunshine's web UI while it is published,
+empty otherwise.
 `status.lastActive` is the last time a session was seen.
 `status.pairing` is the last pairing request: its PIN, Pending, Paired
 or Failed, and why.
@@ -331,6 +334,7 @@ Sunshine's admin web UI, on base+1, stays off the Service by default.
 The operator reaches Sunshine on the pod IP and needs no port for it.
 `spec.expose.webUI: true` publishes the web UI and lets it answer any
 address; without it, private addresses only.
+`status.webUI` then holds its URL, `https://<address host>:<base+1>`.
 Changing `webUI` restarts the desktop.
 Behind a LoadBalancer the web UI also needs `spec.expose.host`, set to
 the address browsers use: Sunshine refuses changes from an origin it

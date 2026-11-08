@@ -57,6 +57,7 @@ One desktop for one owner.
     status:
       phase:        Provisioning | Starting | Ready | Stopping | Stopped | Failed
       address:      203.0.113.10:31989            what to type in Moonlight
+      webUI:        https://203.0.113.10:31990    only while expose.webUI publishes it
       basePort:     31989
       adminSecret:  <name>-sunshine-admin
       sessionState: free | busy                  from /serverinfo
@@ -247,6 +248,10 @@ The window keeps the web port while it is unpublished, so turning
 webUI on never collides.
 A manager run with --probe-external cannot route to pods. It uses the
 client address, and every Service keeps the web port. Dev only.
+
+status.webUI is the URL a browser opens: the address's host, base+1.
+It follows expose.webUI as resolved, not the open port: a port open
+only for a --probe-external manager is not one to send users to.
 
 Changing env restarts the desktop, so changing webUI does too.
 The operator never changes env for an address that arrives later, like

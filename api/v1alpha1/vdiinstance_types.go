@@ -224,6 +224,10 @@ type VdiInstanceStatus struct {
 	Address string `json:"address,omitempty"`
 	// +optional
 	BasePort int32 `json:"basePort,omitempty"`
+	// WebUI is the URL a browser opens for Sunshine's web UI, empty while
+	// expose.webUI does not publish it.
+	// +optional
+	WebUI string `json:"webUI,omitempty"`
 	// AdminSecret holds the Sunshine web UI credentials.
 	// +optional
 	AdminSecret string `json:"adminSecret,omitempty"`
