@@ -62,7 +62,7 @@ One desktop for one owner.
       sessionState: free | busy                  from /serverinfo
       lastActive:   time                         busy seen, or became Ready
       pairing:      {pin, phase: Pending | Paired | Failed, message, requestedAt, pairedAt}
-      conditions:   PodReady, StreamingReady, NetworkReady, Ready
+      conditions:   PodReady, StreamingReady, NetworkReady, Ready, SeccompFiltered, UpdatePending
 
 The controller owns, per instance:
 
@@ -174,8 +174,8 @@ basePort, host, owner, running and pairing exist on the instance only.
 
 A field index on `spec.className` maps a class event to the instances
 naming it, and to no other.
-A change that alters the pod template restarts those desktops, all at
-once: the Deployment is Recreate.
+A change that alters the pod template restarts those desktops, each
+when it has no session: see Changes and sessions.
 home applies only to a claim not made yet.
 
 A missing class: phase Provisioning, Ready False, reason
@@ -278,6 +278,29 @@ Cost: the manager may write any NetworkPolicy in the cluster, as it
 already may Roles. It has no delete; garbage collection removes them.
 envtest enforces no policy. Its tests prove the shape, a cluster the
 effect.
+
+## Changes and sessions
+
+A new pod template restarts the desktop: Recreate ends the pod and the
+session in it. VDI users expect changes at their next logoff, so a
+desktop in a session keeps its pod.
+
+- ensureDeployment copies the current template, fills the wanted one
+  in place, and compares the two with semantic equality, as
+  CreateOrUpdate does: a field the API server defaulted is no change.
+- While running and busy, it puts the copy back. Replicas still apply:
+  stopping always works.
+- UpdatePending is True, its message the changed fields, the desktop
+  container's by their own name.
+- Busy is status.sessionState, from the previous pass's probe. The
+  pass that sees the session end requeues in a second, and that pass
+  changes the pod.
+- A stopped desktop, or one about to stop, takes the change at once.
+- A session started after the last probe, up to 30 seconds, can still
+  be cut. Probing again before every write was not worth it.
+- The Service, NetworkPolicy and owner Role are not held. A webUI
+  change thus opens or closes the port at once while Sunshine keeps its
+  old origin rule until the restart.
 
 ## Order of work
 

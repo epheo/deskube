@@ -58,6 +58,9 @@ const (
 	// ConditionSeccompFiltered is not part of Ready: it says whether the
 	// desktop runs under a seccomp filter, and which.
 	ConditionSeccompFiltered = "SeccompFiltered"
+	// ConditionUpdatePending is not part of Ready either: True while a pod
+	// change waits for the session to end.
+	ConditionUpdatePending = "UpdatePending"
 
 	labelInstance = "vdi.desku.be/instance"
 	adminUser     = "admin"
@@ -209,9 +212,15 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 		}
 		return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 	}
-	dep, err := r.ensureDeployment(ctx, vdi, &settings, pullSecrets, seccomp.Profile)
+	dep, waiting, err := r.ensureDeployment(ctx, vdi, &settings, pullSecrets, seccomp.Profile)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
+	}
+	if len(waiting) > 0 {
+		setCondition(vdi, ConditionUpdatePending, true, "SessionBusy",
+			"waiting for the session to end: "+strings.Join(waiting, ", "))
+	} else {
+		setCondition(vdi, ConditionUpdatePending, false, "UpToDate", "")
 	}
 	if err := r.ensureOwnerRBAC(ctx, vdi, &settings); err != nil {
 		return ctrl.Result{}, err
@@ -219,6 +228,10 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	result, err := r.updateStatus(ctx, vdi, &settings, dep, svc)
 	if err != nil {
 		return result, err
+	}
+	// This pass saw the session end; the next one changes the pod.
+	if len(waiting) > 0 && vdi.Status.SessionState != sessionBusy {
+		result.RequeueAfter = time.Second
 	}
 	return r.reconcilePairing(ctx, vdi, result)
 }
@@ -437,13 +450,15 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 func (r *VdiInstanceReconciler) ensureDeployment(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
 	pullSecrets []corev1.LocalObjectReference, seccomp *corev1.SeccompProfile,
-) (*appsv1.Deployment, error) {
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
-	_, err := r.createOrUpdate(ctx, dep, func() error {
+) (dep *appsv1.Deployment, waiting []string, err error) {
+	dep = &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
+	_, err = r.createOrUpdate(ctx, dep, func() error {
+		waiting = nil
 		// The pod keeps this one label: another would restart every desktop.
 		labels := map[string]string{labelInstance: vdi.Name}
+		running := vdi.Spec.Running == nil || *vdi.Spec.Running
 		replicas := int32(1)
-		if vdi.Spec.Running != nil && !*vdi.Spec.Running {
+		if !running {
 			replicas = 0
 		}
 		labelManaged(dep, vdi.Name)
@@ -453,11 +468,19 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 		if dep.UID == "" {
 			dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
+		current := dep.Spec.Template.DeepCopy()
 		dep.Spec.Template.Labels = labels
 		fillPodSpec(vdi, settings, &dep.Spec.Template.Spec, pullSecrets, seccomp)
+		// A new template restarts the pod and would end the session under
+		// its user. Busy is as of the last probe, at most requeueReady old.
+		if dep.UID != "" && running && vdi.Status.SessionState == sessionBusy {
+			if waiting = templateChanges(current, &dep.Spec.Template); len(waiting) > 0 {
+				dep.Spec.Template = *current
+			}
+		}
 		return controllerutil.SetControllerReference(vdi, dep, r.Scheme)
 	})
-	return dep, err
+	return dep, waiting, err
 }
 
 // fillPodSpec fills the pod in place. Fields it does not name keep what
@@ -825,7 +848,7 @@ func (r *VdiInstanceReconciler) trackIdle(
 		return 0, nil
 	}
 	now := metav1.Now()
-	if vdi.Status.SessionState == "busy" || vdi.Status.LastActive == nil {
+	if vdi.Status.SessionState == sessionBusy || vdi.Status.LastActive == nil {
 		vdi.Status.LastActive = &now
 	}
 	if timeout == nil || vdi.Status.SessionState != "free" {

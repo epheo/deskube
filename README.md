@@ -136,9 +136,8 @@ and `placement`.
 - `imagePullSecrets` name Secrets in the desktop's namespace.
 
 A class change reaches every desktop naming it.
-One that changes the pod restarts its running desktops, all at once,
-sessions included: image, resources, placement, stream, webUI and
-nestedSandboxes do.
+One that changes the pod restarts them, a desktop in a session once
+the session ends: see Changes and sessions.
 `home` reaches only desktops whose home does not exist yet.
 
 A desktop whose class does not exist waits: phase Provisioning, Ready
@@ -172,6 +171,25 @@ Owners need none: `className` and `placement` are admin fields.
   their pod.
 - `priorityClassName` can preempt other pods, and `tolerations` can
   land desktops on tainted nodes. Owners cannot set either.
+
+## Changes and sessions
+
+A change to the pod restarts the desktop: image, resources, placement,
+stream, webUI or nestedSandboxes, from the instance, its class, or an
+operator upgrade.
+While a session runs, the change waits for it to end:
+
+- the desktop keeps its pod;
+- condition `UpdatePending` is True and names what waits, for example
+  `waiting for the session to end: image`;
+- the change goes in a second after the manager sees the session end,
+  or when the desktop stops;
+- `running: false` stops a desktop at once, session or not.
+
+Busy is as of the last probe, every 30 seconds: a session started in
+between can still be cut.
+The Service, NetworkPolicy and owner Role follow at once; only the pod
+waits.
 
 ## Owners
 

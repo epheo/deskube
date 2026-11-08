@@ -296,6 +296,9 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 	})
 
 	It("follows a new image and an explicit host", func() {
+		// A session would hold the change, see "while a session runs".
+		probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+		reconcile("alice")
 		vdi := &vdiv1alpha1.VdiInstance{}
 		get("alice", vdi)
 		vdi.Spec.Image = "registry.example/desktop:2"
@@ -711,6 +714,99 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		dep := &appsv1.Deployment{}
 		get("alice", dep)
 		Expect(*dep.Spec.Replicas).To(Equal(int32(0)))
+	})
+
+	Context("while a session runs", Ordered, func() {
+		image := func() string {
+			dep := &appsv1.Deployment{}
+			get("jo", dep)
+			return dep.Spec.Template.Spec.Containers[0].Image
+		}
+		classImage := func(image string) {
+			class := &vdiv1alpha1.VdiClass{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "jo-class"}, class)).To(Succeed())
+			class.Spec.Image = image
+			Expect(k8sClient.Update(ctx, class)).To(Succeed())
+		}
+		pending := func() *metav1.Condition {
+			vdi := &vdiv1alpha1.VdiInstance{}
+			get("jo", vdi)
+			return meta.FindStatusCondition(vdi.Status.Conditions, ConditionUpdatePending)
+		}
+		// The manager learns the session state from the probe, a pass later.
+		session := func(state string) {
+			probe = &sunshine.ServerInfo{StatusCode: 200, State: state}
+			reconcile("jo")
+		}
+
+		BeforeAll(func() {
+			class := &vdiv1alpha1.VdiClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "jo-class"},
+				Spec:       vdiv1alpha1.VdiClassSpec{Image: "registry.example/jo:1"},
+			}
+			Expect(k8sClient.Create(ctx, class)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, class)
+			Expect(k8sClient.Create(ctx, &vdiv1alpha1.VdiInstance{
+				ObjectMeta: metav1.ObjectMeta{Name: "jo", Namespace: testNS},
+				// Pinned high: the specs below count on the next windows.
+				Spec: vdiv1alpha1.VdiInstanceSpec{ClassName: "jo-class", Expose: vdiv1alpha1.ExposeSpec{BasePort: 32416}},
+			})).To(Succeed())
+			reconcile("jo")
+			startPod("jo")
+		})
+
+		It("keeps a busy desktop's pod when its class changes, and changes it once the session ends", func() {
+			session("SUNSHINE_SERVER_BUSY")
+			// What the API server defaulted is no change to hold.
+			dep := &appsv1.Deployment{}
+			get("jo", dep)
+			before := dep.ResourceVersion
+			reconcile("jo")
+			get("jo", dep)
+			Expect(dep.ResourceVersion).To(Equal(before))
+			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
+
+			classImage("registry.example/jo:2")
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:1"))
+			cond := pending()
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Message).To(Equal("waiting for the session to end: image"))
+
+			probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "jo", Namespace: testNS}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Second))
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:2"))
+			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("changes a free desktop's pod at once", func() {
+			classImage("registry.example/jo:3")
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:3"))
+			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("stops a busy desktop at once", func() {
+			session("SUNSHINE_SERVER_BUSY")
+			classImage("registry.example/jo:4")
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:3"))
+
+			vdi := &vdiv1alpha1.VdiInstance{}
+			get("jo", vdi)
+			vdi.Spec.Running = ptr.To(false)
+			Expect(k8sClient.Update(ctx, vdi)).To(Succeed())
+			reconcile("jo")
+			dep := &appsv1.Deployment{}
+			get("jo", dep)
+			Expect(*dep.Spec.Replicas).To(BeZero())
+			// Stopped, the pod change waits no longer.
+			Expect(image()).To(Equal("registry.example/jo:4"))
+			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
+		})
 	})
 
 	It("still stops a desktop whose class went away", func() {
