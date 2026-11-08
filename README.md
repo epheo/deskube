@@ -248,10 +248,32 @@ container without capabilities by `hack/seccomp/flatten.py`.
 
 ## Console plugin
 
-`console/` is an OpenShift console dynamic plugin. It adds a
-**Virtual Desktops** page: list, create, start, stop, delete, and pair
-Moonlight by writing the PIN on the desktop. Owners see their
-namespace; admins see all.
+`console/` is an OpenShift console dynamic plugin. It adds two pages
+under Virtualization.
+
+**Virtual Desktops** lists the desktops of a namespace, or of all.
+Owners see their namespace; admins see all.
+Each desktop shows its status, class, session, Moonlight address,
+owner and last activity, and when they apply:
+
+- its class does not exist;
+- an update waits for the session to end, what waits on hover;
+- a pairing waits or failed, why on hover;
+- it runs sandboxes without a seccomp filter.
+
+Owners start, stop, and pair Moonlight by writing the PIN on the
+desktop. Open Sunshine web UI shows only while the web UI is
+published, by the desktop or else its class.
+Admins also create and delete desktops.
+A new desktop picks a class or gives an image by hand.
+With a class, image, size and idle stop are optional overrides.
+
+**Desktop classes**, for whoever may list classes, shows each class's
+image, size and placement in short. Create class opens the console's
+YAML editor on the sample class; a class's own page edits it.
+
+Create desktop, Delete and Create class show only to whoever may use
+them.
 
     make console-deploy
 
