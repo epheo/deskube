@@ -1,4 +1,4 @@
-import { Resources } from './types';
+import { Placement, Resources } from './types';
 
 const BINARY_UNITS: Record<string, string> = { Ki: 'KiB', Mi: 'MiB', Gi: 'GiB', Ti: 'TiB' };
 
@@ -36,4 +36,15 @@ export const durationText = (d: string): string => {
     seconds && plural(seconds, 'second'),
   ].filter(Boolean);
   return parts.length ? parts.join(' ') : d;
+};
+
+export const placementText = (p?: Placement): string => {
+  const parts: string[] = [];
+  const selector = Object.entries(p?.nodeSelector ?? {});
+  if (selector.length) parts.push(`nodes ${selector.map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  if (p?.tolerations?.length) parts.push(`tolerates ${p.tolerations.map((t) => t.key ?? 'every taint').join(', ')}`);
+  if (p?.affinity) parts.push('affinity rules');
+  if (p?.priorityClassName) parts.push(`priority ${p.priorityClassName}`);
+  if (p?.runtimeClassName) parts.push(`runtime ${p.runtimeClassName}`);
+  return parts.length ? parts.join('; ') : 'Any node';
 };

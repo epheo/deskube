@@ -34,7 +34,10 @@
     "description": "Virtual desktops streamed with Sunshine and Moonlight",
     "exposedModules": {
       "DesktopsPage": "./src/components/DesktopsPage",
-      "DesktopsRedirect": "./src/components/DesktopsRedirect"
+      "DesktopsRedirect": "./src/components/DesktopsRedirect",
+      "DesktopClassesPage": "./src/components/DesktopClassesPage",
+      "flags": "./src/flags",
+      "templates": "./src/templates"
     },
     "dependencies": {
       "@console/pluginAPI": "*"

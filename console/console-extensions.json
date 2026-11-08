@@ -30,6 +30,16 @@
     }
   },
   {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/desktop-classes",
+      "component": {
+        "$codeRef": "DesktopClassesPage"
+      }
+    }
+  },
+  {
     "type": "console.navigation/href",
     "properties": {
       "id": "deskube-desktops",
@@ -47,6 +57,55 @@
       "href": "/desktops",
       "perspective": "virtualization-perspective",
       "insertAfter": "virtualmachines-virt-perspective"
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "deskube-desktop-classes",
+      "name": "Desktop classes",
+      "href": "/desktop-classes",
+      "perspective": "admin",
+      "section": "virtualization",
+      "insertAfter": "deskube-desktops"
+    },
+    "flags": {
+      "required": ["DESKUBE_CLASS_VIEWER"]
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "deskube-desktop-classes-virt-perspective",
+      "name": "Desktop classes",
+      "href": "/desktop-classes",
+      "perspective": "virtualization-perspective",
+      "insertAfter": "deskube-desktops-virt-perspective"
+    },
+    "flags": {
+      "required": ["DESKUBE_CLASS_VIEWER"]
+    }
+  },
+  {
+    "type": "console.flag/hookProvider",
+    "properties": {
+      "handler": {
+        "$codeRef": "flags.useClassViewerFlag"
+      }
+    }
+  },
+  {
+    "type": "console.yaml-template",
+    "properties": {
+      "name": "default",
+      "model": {
+        "group": "vdi.desku.be",
+        "version": "v1alpha1",
+        "kind": "VdiClass"
+      },
+      "template": {
+        "$codeRef": "templates.vdiClassTemplate"
+      }
     }
   }
 ]
