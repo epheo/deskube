@@ -71,6 +71,8 @@ Base port 31989 gives: 31984 https, 31989 http, 31990 web UI,
            requests: {cpu: "2", memory: 4Gi}
            limits: {memory: 4Gi}
 
+   Or name a class instead of an image, see Classes.
+
 4. Wait for `Ready` and read the address:
 
        $ oc get vdiinstance
@@ -96,6 +98,75 @@ the session ends.
 `spec.running: false` removes the pod and keeps the home.
 `spec.idleTimeout: 30m` does that after half an hour without a session;
 the operator flips `running` to false, set it back to true to resume.
+
+## Classes
+
+A VdiClass is a kind of desktop an admin offers, as a StorageClass is
+a kind of volume. It is cluster scoped and holds `image`,
+`imagePullPolicy`, `imagePullSecrets`, `resources`, `home`,
+`idleTimeout`, `expose` (`type`, `webUI`), `stream`, `nestedSandboxes`
+and `placement`.
+
+    apiVersion: vdi.desku.be/v1alpha1
+    kind: VdiClass
+    metadata:
+      name: desktop
+    spec:
+      image: ghcr.io/epheo/deskube-desktop:main
+      idleTimeout: 1h
+      resources:
+        requests: {cpu: "2", memory: 4Gi}
+        limits: {memory: 4Gi}
+    ---
+    apiVersion: vdi.desku.be/v1alpha1
+    kind: VdiInstance
+    metadata:
+      name: bob-desk
+    spec:
+      className: desktop
+      owner: bob
+
+- An instance needs `image`, `className`, or both.
+- A field the instance sets wins; else the class's; else the default.
+- `expose`, `stream`, `home` and `placement` merge field by field.
+- `resources` come whole from one side, not merged per resource: a
+  limit from one under a request from the other is refused.
+- `webUI: false` or `nestedSandboxes: false` on an instance turns off
+  what its class turns on.
+- `imagePullSecrets` name Secrets in the desktop's namespace.
+
+A class change reaches every desktop naming it.
+One that changes the pod restarts its running desktops, all at once,
+sessions included: image, resources, placement, stream, webUI and
+nestedSandboxes do.
+`home` reaches only desktops whose home does not exist yet.
+
+A desktop whose class does not exist waits: phase Provisioning, Ready
+False, reason `ClassNotFound`. It starts when the class appears.
+Deleting a class leaves its running desktops as they are and unmanaged
+until it is back: no idle shutdown, no pairing, `running: false` does
+nothing.
+
+An instance made before classes may carry `expose.type: NodePort` or
+`home.size: 20Gi`, written by the CRD defaults then; they beat the
+class's until removed.
+
+`config/rbac` has viewer and editor ClusterRoles for classes.
+Owners need none: `className` and `placement` are admin fields.
+
+### Placement
+
+`spec.placement`, on a class or on one instance, goes to the pod as is:
+`nodeSelector`, `tolerations`, `affinity`, `priorityClassName`,
+`runtimeClassName`.
+
+- `runtimeClassName` picks a runtime: the way to a GPU runtime.
+- Each field comes whole from one side: nodeSelector keys and
+  tolerations are not merged.
+- Unset, the pod has none of them: desktops without placement keep
+  their pod.
+- `priorityClassName` can preempt other pods, and `tolerations` can
+  land desktops on tainted nodes. Owners cannot set either.
 
 ## Owners
 
@@ -239,7 +310,7 @@ podman, no cluster: the desku.be-images README.
   web UI takes the first password anyone sets.
 - A private registry needs a pull secret in every namespace that runs
   desktops, linked to its default service account or named in
-  `spec.imagePullSecrets`.
+  `spec.imagePullSecrets` of the desktop or its class.
 - A PIN approves the first waiting client Sunshine accepts it for.
   Whoever can read it can race the owner's Moonlight: see Owners.
 

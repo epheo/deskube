@@ -41,6 +41,7 @@ Restarted 2026-09-23 on KubeVirt VMs, moved to pods only on 2026-10-05.
 One desktop for one owner.
 
     spec:
+      className:   desktop                       a VdiClass; image, className or both
       image:       registry/desktop:tag
       resources:   {requests, limits}            CPU and memory of the pod
       home:        {size: 20Gi, storageClassName}
@@ -50,6 +51,7 @@ One desktop for one owner.
       expose:      {type: NodePort | LoadBalancer, basePort, host, webUI}
       stream:      {encoder: software | vaapi, keyboardLayout}
       nestedSandboxes: false                    let Steam, Flatpak, podman sandbox themselves
+      placement:   {nodeSelector, tolerations, affinity, priorityClassName, runtimeClassName}
       pairing:     {pin: "4693", clientName}     the PIN Moonlight shows; removed once handled
 
     status:
@@ -126,11 +128,68 @@ VdiInstances by whoever may not create one in the namespace, asked of
 CEL's `authorizer`.
 They may change `spec.running` and `spec.pairing`; every other spec
 field and `metadata.finalizers` must stay as they were.
+`className` too: a class brings an image and sandboxes of its own.
+`placement` too: it can preempt pods and reach tainted nodes.
 Admins and the manager can create, so the policy skips them.
 The policy compares each spec field by name.
 A unit test fails when a field of VdiInstanceSpec is neither compared
 nor listed as owner mutable.
 ValidatingAdmissionPolicy v1 needs Kubernetes 1.30.
+
+### VdiClass
+
+A kind of desktop an admin offers, cluster scoped, like a StorageClass.
+
+    spec:
+      image:           registry/desktop:tag     required
+      imagePullPolicy: IfNotPresent
+      imagePullSecrets: [{name}]                Secrets in each desktop's namespace
+      resources:       {requests, limits}
+      home:            {size, storageClassName}
+      idleTimeout:     1h
+      expose:          {type, webUI}            basePort and host belong to one desktop
+      stream:          {encoder, keyboardLayout}
+      nestedSandboxes: false
+      placement:       {nodeSelector, tolerations, affinity, priorityClassName, runtimeClassName}
+
+No status: nothing about a class needs reporting yet.
+
+One function, `resolve`, works out a desktop's settings once per pass:
+each field the instance sets, else the class's, else the default.
+Every reader takes its result; reading `vdi.Spec` would miss the class.
+basePort, host, owner, running and pairing exist on the instance only.
+
+- expose, stream, home and placement merge field by field.
+- resources come whole: a limit from one side under a request from the
+  other is a pod the API server refuses.
+- A placement field comes whole too: two nodeSelectors merged by key
+  are a choice nobody made.
+- webUI and nestedSandboxes are pointers, so false on an instance
+  overrides a class's true.
+- expose.type and home.size have no CRD default: a default reads as
+  set on the instance and would beat the class. The operator applies
+  NodePort and 20Gi.
+- Port allocation resolves the other desktops too: a desktop that is a
+  LoadBalancer through its class holds no NodePort window.
+
+A field index on `spec.className` maps a class event to the instances
+naming it, and to no other.
+A change that alters the pod template restarts those desktops, all at
+once: the Deployment is Recreate.
+home applies only to a claim not made yet.
+
+A missing class: phase Provisioning, Ready False, reason
+ClassNotFound, and nothing else touched. No requeue: the class watch
+wakes the instance when the class appears.
+A running desktop whose class is deleted keeps its pod, unmanaged.
+
+Placement goes to the pod as is. Unset is nil, as before placement
+existed, so a desktop without one keeps its pod.
+runtimeClassName is how a GPU runtime gets picked.
+
+Cost: the manager gets, lists and watches every VdiClass. A class holds
+no secret, only the names of pull secrets.
+`config/rbac` has viewer and editor ClusterRoles. Owners get nothing.
 
 ## Port allocation
 
@@ -212,9 +271,12 @@ effect.
 1. Done: VdiInstance as a pod, pairing, owner RBAC, idle shutdown.
    Proven on OpenShift 4.22 without a GPU on 2026-10-05: 59 fps at
    1920x1080 delivered through a NodePort, three sessions in a row.
-2. GPU in the pod: a device plugin or DRA handing out the render node,
-   with a fixed number of desktops per GPU.
-3. Sandboxes inside a desktop, which Steam needs: done as
+2. Done: classes and placement, VdiClass and `spec.placement`.
+   Proven in envtest only, on no cluster yet.
+3. GPU in the pod: a device plugin or DRA handing out the render node,
+   with a fixed number of desktops per GPU. A class's placement and
+   runtimeClassName pick the GPU nodes and runtime.
+4. Sandboxes inside a desktop, which Steam needs: done as
    `spec.nestedSandboxes`, proven on OpenShift 4.22 on 2026-10-05. The
    pod gets `hostUsers: false`, UID 1000 inside its namespace,
    `procMount: Unmasked`, no privilege escalation, no capability, and a
@@ -228,6 +290,6 @@ effect.
    says so. Gamepads are set aside.
    Steam itself ran in such a pod, filter on, no GPU: its sandbox
    started and the client reached its sign in window.
-4. Limits the kubelet does not know: GPU memory through the dmem cgroup
+5. Limits the kubelet does not know: GPU memory through the dmem cgroup
    controller, a frame cap per desktop.
-5. Pools and templates.
+6. Pools of desktops kept ready. Templates are classes, item 2.
