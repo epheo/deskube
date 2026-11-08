@@ -27,6 +27,10 @@ spec:
     - jsonPath: .spec.owner
       name: Owner
       type: string
+    - jsonPath: .spec.className
+      name: Class
+      priority: 1
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -53,8 +57,18 @@ spec:
           metadata:
             type: object
           spec:
-            description: VdiInstanceSpec defines one desktop for one owner.
+            description: |-
+              VdiInstanceSpec defines one desktop for one owner. A field it sets
+              wins over its class's; expose, stream and home merge field by field.
             properties:
+              className:
+                description: |-
+                  ClassName names the VdiClass this desktop takes what it leaves
+                  unset from. While the class does not exist the desktop waits. A
+                  class change reaches the desktop, and restarts it when the pod
+                  changes.
+                minLength: 1
+                type: string
               expose:
                 description: ExposeSpec controls the Service in front of the desktop.
                 properties:
@@ -106,7 +120,8 @@ spec:
                   The operator sets running to false; set it back to true to resume.
                 type: string
               image:
-                description: Image is the desktop's container image.
+                description: Image is the desktop's container image, its class's when
+                  empty.
                 minLength: 1
                 type: string
               imagePullPolicy:
@@ -161,7 +176,9 @@ spec:
                 - pin
                 type: object
               resources:
-                description: Resources bound the desktop's CPU and memory.
+                description: |-
+                  Resources bound the desktop's CPU and memory. When set they replace
+                  the class's whole: requests and limits are not merged by resource.
                 properties:
                   claims:
                     description: |-
@@ -242,9 +259,10 @@ spec:
                     pattern: ^[a-z]{2,8}(,[a-z]{2,8}){0,3}$
                     type: string
                 type: object
-            required:
-            - image
             type: object
+            x-kubernetes-validations:
+            - message: needs image or className
+              rule: has(self.image) || has(self.className)
           status:
             description: VdiInstanceStatus reports what a client needs to connect.
             properties:
@@ -353,6 +371,8 @@ spec:
                 description: SessionState is free or busy, from Sunshine serverinfo.
                 type: string
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

@@ -75,9 +75,9 @@ type seccompChoice struct {
 // the command line, else one the Security Profiles Operator installs
 // for us, else none. A nil Profile means "not yet, do not start".
 func (r *VdiInstanceReconciler) chooseSeccomp(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
 ) (seccompChoice, error) {
-	if !ptr.Deref(vdi.Spec.NestedSandboxes, false) {
+	if !ptr.Deref(settings.NestedSandboxes, false) {
 		return seccompChoice{
 			Profile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 			Reason:  seccompRuntimeDefault,

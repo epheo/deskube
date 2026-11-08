@@ -21,6 +21,9 @@ spec:
   # One entry per spec field but running and pairing.
   # internal/controller/policy_test.go fails on a field left out.
   validations:
+  - expression: object.spec.?className == oldObject.spec.?className
+    message: only an admin may change spec.className
+    reason: Forbidden
   - expression: object.spec.?image == oldObject.spec.?image
     message: only an admin may change spec.image
     reason: Forbidden

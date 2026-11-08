@@ -85,6 +85,14 @@ rules:
 - apiGroups:
   - vdi.desku.be
   resources:
+  - vdiclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - vdi.desku.be
+  resources:
   - vdiinstances
   verbs:
   - create

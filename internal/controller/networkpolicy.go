@@ -40,11 +40,13 @@ const (
 
 // ensureNetworkPolicy closes the desktop pod to the rest of the cluster.
 // Egress stays open: a desktop browses the internet.
-func (r *VdiInstanceReconciler) ensureNetworkPolicy(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
+func (r *VdiInstanceReconciler) ensureNetworkPolicy(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
+) error {
 	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := r.createOrUpdate(ctx, policy, func() error {
 		labelManaged(policy, vdi.Name)
-		policy.Spec = desktopPolicy(vdi.Name, vdi.Status.BasePort, r.webOpen(vdi), r.ManagerNamespace)
+		policy.Spec = desktopPolicy(vdi.Name, vdi.Status.BasePort, r.webOpen(settings), r.ManagerNamespace)
 		return controllerutil.SetControllerReference(vdi, policy, r.Scheme)
 	})
 	return err

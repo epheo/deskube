@@ -41,6 +41,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	vdiv1alpha1 "github.com/epheo/deskube/api/v1alpha1"
@@ -140,8 +141,17 @@ func (r *VdiInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	class, err := r.classOf(ctx, vdi)
+	if apierrors.IsNotFound(err) {
+		return r.waitForClass(ctx, vdi)
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	settings := resolve(vdi, class)
+
 	if vdi.Status.BasePort == 0 {
-		base, err := r.chooseBasePort(ctx, vdi)
+		base, err := r.chooseBasePort(ctx, vdi, &settings)
 		if err != nil {
 			reason := "PortAllocation"
 			if _, ok := errors.AsType[*portConflictError](err); ok {
@@ -159,7 +169,7 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 	}
 
 	// The Service claims the node ports before a pod starts on them.
-	svc, err := r.ensureService(ctx, vdi)
+	svc, err := r.ensureService(ctx, vdi, &settings)
 	if err != nil {
 		if svc.UID == "" && nodePortTaken(err) {
 			return r.releaseWindow(ctx, vdi, err)
@@ -167,21 +177,21 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 		return r.fail(ctx, vdi, ConditionNetworkReady, "ServiceApply", err)
 	}
 	// Before the Deployment, so a new desktop never runs open.
-	if err := r.ensureNetworkPolicy(ctx, vdi); err != nil {
+	if err := r.ensureNetworkPolicy(ctx, vdi, &settings); err != nil {
 		return r.fail(ctx, vdi, ConditionNetworkReady, "NetworkPolicyApply", err)
 	}
 
 	if err := r.ensureAdminSecret(ctx, vdi); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.ensureHome(ctx, vdi); err != nil {
+	if err := r.ensureHome(ctx, vdi, &settings); err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "HomeApply", err)
 	}
-	pullSecrets, err := r.ensureSandboxIdentity(ctx, vdi)
+	pullSecrets, err := r.ensureSandboxIdentity(ctx, vdi, &settings)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "SandboxIdentity", err)
 	}
-	seccomp, err := r.chooseSeccomp(ctx, vdi)
+	seccomp, err := r.chooseSeccomp(ctx, vdi, &settings)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "SeccompProfile", err)
 	}
@@ -198,14 +208,14 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 		}
 		return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 	}
-	dep, err := r.ensureDeployment(ctx, vdi, pullSecrets, seccomp.Profile)
+	dep, err := r.ensureDeployment(ctx, vdi, &settings, pullSecrets, seccomp.Profile)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
 	}
-	if err := r.ensureOwnerRBAC(ctx, vdi); err != nil {
+	if err := r.ensureOwnerRBAC(ctx, vdi, &settings); err != nil {
 		return ctrl.Result{}, err
 	}
-	result, err := r.updateStatus(ctx, vdi, dep, svc)
+	result, err := r.updateStatus(ctx, vdi, &settings, dep, svc)
 	if err != nil {
 		return result, err
 	}
@@ -213,8 +223,10 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 }
 
 // chooseBasePort honours a pinned port, else takes the lowest free window.
-func (r *VdiInstanceReconciler) chooseBasePort(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) (int32, error) {
-	if vdi.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
+func (r *VdiInstanceReconciler) chooseBasePort(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
+) (int32, error) {
+	if settings.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 		if vdi.Spec.Expose.BasePort != 0 {
 			return vdi.Spec.Expose.BasePort, nil
 		}
@@ -251,9 +263,18 @@ func (r *VdiInstanceReconciler) heldNodePorts(
 	if err := r.reader().List(ctx, desktops); err != nil {
 		return nil, err
 	}
+	classes := &vdiv1alpha1.VdiClassList{}
+	if err := r.List(ctx, classes); err != nil {
+		return nil, err
+	}
+	classByName := make(map[string]*vdiv1alpha1.VdiClass, len(classes.Items))
+	for i := range classes.Items {
+		classByName[classes.Items[i].Name] = &classes.Items[i]
+	}
 	for i := range desktops.Items {
 		other := &desktops.Items[i]
-		if other.UID == vdi.UID || other.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
+		if other.UID == vdi.UID ||
+			resolve(other, classByName[other.Spec.ClassName]).Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 			continue
 		}
 		holder := "VdiInstance " + other.Namespace + "/" + other.Name
@@ -331,7 +352,9 @@ func (r *VdiInstanceReconciler) ensureAdminSecret(ctx context.Context, vdi *vdiv
 
 // ensureHome creates the home volume once. It outlives every restart
 // of the desktop and goes away with the instance.
-func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
+func (r *VdiInstanceReconciler) ensureHome(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
+) error {
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: homeClaimName(vdi), Namespace: vdi.Namespace}}
 	_, err := r.createOrUpdate(ctx, pvc, func() error {
 		labelManaged(pvc, vdi.Name)
@@ -339,15 +362,11 @@ func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1
 		if pvc.UID != "" {
 			return nil
 		}
-		size := vdi.Spec.Home.Size
-		if size.IsZero() {
-			size = resource.MustParse("20Gi")
-		}
 		pvc.Spec = corev1.PersistentVolumeClaimSpec{
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			StorageClassName: vdi.Spec.Home.StorageClassName,
+			StorageClassName: settings.Home.StorageClassName,
 			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: size},
+				Requests: corev1.ResourceList{corev1.ResourceStorage: settings.Home.Size},
 			},
 		}
 		return controllerutil.SetControllerReference(vdi, pvc, r.Scheme)
@@ -361,12 +380,12 @@ func (r *VdiInstanceReconciler) ensureHome(ctx context.Context, vdi *vdiv1alpha1
 // its restricted SCC. It returns the pull secrets the default account
 // carries, which the new account does not inherit.
 func (r *VdiInstanceReconciler) ensureSandboxIdentity(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
 ) ([]corev1.LocalObjectReference, error) {
 	meta := metav1.ObjectMeta{Name: sandboxAccountName(vdi), Namespace: vdi.Namespace}
 	sa := &corev1.ServiceAccount{ObjectMeta: meta}
 	binding := &rbacv1.RoleBinding{ObjectMeta: meta}
-	if !ptr.Deref(vdi.Spec.NestedSandboxes, false) {
+	if !ptr.Deref(settings.NestedSandboxes, false) {
 		for _, obj := range []client.Object{binding, sa} {
 			if err := r.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
 				return nil, err
@@ -415,8 +434,8 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 }
 
 func (r *VdiInstanceReconciler) ensureDeployment(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, pullSecrets []corev1.LocalObjectReference,
-	seccomp *corev1.SeccompProfile,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
+	pullSecrets []corev1.LocalObjectReference, seccomp *corev1.SeccompProfile,
 ) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := r.createOrUpdate(ctx, dep, func() error {
@@ -434,7 +453,7 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 			dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
 		dep.Spec.Template.Labels = labels
-		fillPodSpec(vdi, &dep.Spec.Template.Spec, pullSecrets, seccomp)
+		fillPodSpec(vdi, settings, &dep.Spec.Template.Spec, pullSecrets, seccomp)
 		return controllerutil.SetControllerReference(vdi, dep, r.Scheme)
 	})
 	return dep, err
@@ -443,8 +462,8 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 // fillPodSpec fills the pod in place. Fields it does not name keep what
 // the API server defaulted, so an unchanged instance writes nothing.
 func fillPodSpec(
-	vdi *vdiv1alpha1.VdiInstance, pod *corev1.PodSpec, pullSecrets []corev1.LocalObjectReference,
-	seccomp *corev1.SeccompProfile,
+	vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec, pod *corev1.PodSpec,
+	pullSecrets []corev1.LocalObjectReference, seccomp *corev1.SeccompProfile,
 ) {
 	base := vdi.Status.BasePort
 	web := strconv.Itoa(int(base + sunshine.OffsetWeb))
@@ -454,7 +473,7 @@ func fillPodSpec(
 	pod.AutomountServiceAccountToken = ptr.To(false)
 	pod.EnableServiceLinks = ptr.To(false)
 	pod.TerminationGracePeriodSeconds = ptr.To(int64(10))
-	pod.ImagePullSecrets = append(append([]corev1.LocalObjectReference{}, vdi.Spec.ImagePullSecrets...), pullSecrets...)
+	pod.ImagePullSecrets = append(append([]corev1.LocalObjectReference{}, settings.ImagePullSecrets...), pullSecrets...)
 	if len(pod.ImagePullSecrets) == 0 {
 		pod.ImagePullSecrets = nil
 	}
@@ -464,7 +483,7 @@ func fillPodSpec(
 	psc := pod.SecurityContext
 	psc.RunAsNonRoot = ptr.To(true)
 	psc.SeccompProfile = seccomp
-	sandbox := ptr.Deref(vdi.Spec.NestedSandboxes, false)
+	sandbox := ptr.Deref(settings.NestedSandboxes, false)
 	if sandbox {
 		pod.ServiceAccountName = sandboxAccountName(vdi)
 		pod.DeprecatedServiceAccount = pod.ServiceAccountName
@@ -501,11 +520,11 @@ func fillPodSpec(
 		pod.Containers = []corev1.Container{{Name: containerName}}
 	}
 	c := &pod.Containers[0]
-	c.Image = vdi.Spec.Image
-	if vdi.Spec.ImagePullPolicy != "" {
-		c.ImagePullPolicy = vdi.Spec.ImagePullPolicy
+	c.Image = settings.Image
+	if settings.ImagePullPolicy != "" {
+		c.ImagePullPolicy = settings.ImagePullPolicy
 	}
-	c.Resources = vdi.Spec.Resources
+	c.Resources = settings.Resources
 	c.Env = []corev1.EnvVar{
 		{Name: "DESKUBE_NAME", Value: vdi.Name},
 		{Name: "DESKUBE_PORT", Value: strconv.Itoa(int(base))},
@@ -517,16 +536,16 @@ func fillPodSpec(
 			FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "status.hostIP"},
 		}},
 		// Sunshine counts pod IPs as lan, so lan still lets the manager in.
-		{Name: "DESKUBE_WEB_UI_ALLOWED", Value: webUIAllowed(vdi)},
+		{Name: "DESKUBE_WEB_UI_ALLOWED", Value: webUIAllowed(settings)},
 	}
 	if host := vdi.Spec.Expose.Host; host != "" {
 		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_WEB_ORIGINS", Value: "https://" + net.JoinHostPort(host, web)})
 	}
-	if vdi.Spec.Stream.Encoder != "" {
-		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_ENCODER", Value: vdi.Spec.Stream.Encoder})
+	if settings.Stream.Encoder != "" {
+		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_ENCODER", Value: settings.Stream.Encoder})
 	}
-	if vdi.Spec.Stream.KeyboardLayout != "" {
-		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_KEYBOARD_LAYOUT", Value: vdi.Spec.Stream.KeyboardLayout})
+	if settings.Stream.KeyboardLayout != "" {
+		c.Env = append(c.Env, corev1.EnvVar{Name: "DESKUBE_KEYBOARD_LAYOUT", Value: settings.Stream.KeyboardLayout})
 	}
 	c.Ports = make([]corev1.ContainerPort, 0, len(sunshine.Ports))
 	for _, p := range sunshine.Ports {
@@ -558,7 +577,7 @@ func fillPodSpec(
 }
 
 func (r *VdiInstanceReconciler) ensureService(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
 ) (*corev1.Service, error) {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err := r.createOrUpdate(ctx, svc, func() error {
@@ -566,12 +585,12 @@ func (r *VdiInstanceReconciler) ensureService(
 		svc.Spec.Selector = map[string]string{labelInstance: vdi.Name}
 		svc.Spec.Type = corev1.ServiceTypeNodePort
 		svc.Spec.AllocateLoadBalancerNodePorts = nil
-		if vdi.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
+		if settings.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 			svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 			// Random node ports would split the windows NodePort desktops need.
 			svc.Spec.AllocateLoadBalancerNodePorts = ptr.To(false)
 		}
-		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort, r.webOpen(vdi))
+		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort, r.webOpen(settings))
 		return controllerutil.SetControllerReference(vdi, svc, r.Scheme)
 	})
 	return svc, err
@@ -580,8 +599,8 @@ func (r *VdiInstanceReconciler) ensureService(
 // webOpen says whether the web port takes any source, on the Service and
 // through the NetworkPolicy. A manager outside the cluster reaches the
 // admin API that way.
-func (r *VdiInstanceReconciler) webOpen(vdi *vdiv1alpha1.VdiInstance) bool {
-	return ptr.Deref(vdi.Spec.Expose.WebUI, false) || r.ProbeExternal
+func (r *VdiInstanceReconciler) webOpen(settings *vdiv1alpha1.VdiClassSpec) bool {
+	return ptr.Deref(settings.Expose.WebUI, false) || r.ProbeExternal
 }
 
 // servicePorts maps each Sunshine port 1:1, so the desktop and the
@@ -611,7 +630,9 @@ func servicePorts(base int32, pinNodePorts, web bool) []corev1.ServicePort {
 // with the web UI published, read its admin password, of no use to the
 // owner otherwise. RBAC cannot tell one field from another: config/policy
 // narrows the writes to running and pairing.
-func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1alpha1.VdiInstance) error {
+func (r *VdiInstanceReconciler) ensureOwnerRBAC(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
+) error {
 	name := vdi.Name + "-owner"
 	if vdi.Spec.Owner == "" {
 		for _, obj := range []client.Object{
@@ -637,7 +658,7 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 				ResourceNames: []string{vdi.Name}, Verbs: []string{"update", "patch"},
 			},
 		}
-		if ptr.Deref(vdi.Spec.Expose.WebUI, false) {
+		if ptr.Deref(settings.Expose.WebUI, false) {
 			role.Rules = append(role.Rules, rbacv1.PolicyRule{
 				APIGroups: []string{""}, Resources: []string{"secrets"},
 				ResourceNames: []string{adminSecretName(vdi)}, Verbs: verbsRead[:1],
@@ -660,7 +681,8 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(ctx context.Context, vdi *vdiv1a
 var verbsRead = []string{"get", "list", "watch"}
 
 func (r *VdiInstanceReconciler) updateStatus(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, dep *appsv1.Deployment, svc *corev1.Service,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
+	dep *appsv1.Deployment, svc *corev1.Service,
 ) (ctrl.Result, error) {
 	running := vdi.Spec.Running == nil || *vdi.Spec.Running
 	vdi.Status.AdminSecret = adminSecretName(vdi)
@@ -705,7 +727,7 @@ func (r *VdiInstanceReconciler) updateStatus(
 	ready := podReady && streaming && host != ""
 	setCondition(vdi, ConditionReady, ready, "Aggregate", "")
 
-	idleLeft, err := r.trackIdle(ctx, vdi, running, ready)
+	idleLeft, err := r.trackIdle(ctx, vdi, settings.IdleTimeout, running, ready)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -785,7 +807,7 @@ func podState(pod *corev1.Pod) (reason, message string) {
 // desktop off once it sat free for idleTimeout. It returns how long the
 // desktop may still idle, zero when no timeout applies.
 func (r *VdiInstanceReconciler) trackIdle(
-	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, running, ready bool,
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, timeout *metav1.Duration, running, ready bool,
 ) (time.Duration, error) {
 	if !running {
 		vdi.Status.LastActive = nil
@@ -798,14 +820,14 @@ func (r *VdiInstanceReconciler) trackIdle(
 	if vdi.Status.SessionState == "busy" || vdi.Status.LastActive == nil {
 		vdi.Status.LastActive = &now
 	}
-	if vdi.Spec.IdleTimeout == nil || vdi.Status.SessionState != "free" {
+	if timeout == nil || vdi.Status.SessionState != "free" {
 		return 0, nil
 	}
-	left := vdi.Spec.IdleTimeout.Duration - now.Sub(vdi.Status.LastActive.Time)
+	left := timeout.Duration - now.Sub(vdi.Status.LastActive.Time)
 	if left > 0 {
 		return left, nil
 	}
-	logf.FromContext(ctx).Info("idle timeout reached, stopping the desktop", "idleTimeout", vdi.Spec.IdleTimeout.Duration)
+	logf.FromContext(ctx).Info("idle timeout reached, stopping the desktop", "idleTimeout", timeout.Duration)
 	// Update returns the stored status and would wipe the one built here,
 	// so the spec change goes through a copy.
 	stopped := vdi.DeepCopy()
@@ -815,7 +837,7 @@ func (r *VdiInstanceReconciler) trackIdle(
 	}
 	vdi.ResourceVersion = stopped.ResourceVersion
 	vdi.Spec.Running = ptr.To(false)
-	message := "stopped after " + vdi.Spec.IdleTimeout.Duration.String() + " without a session"
+	message := "stopped after " + timeout.Duration.String() + " without a session"
 	setCondition(vdi, ConditionReady, false, "IdleShutdown", message)
 	return 0, nil
 }
@@ -958,8 +980,8 @@ func errString(err error) string {
 }
 
 // webUIAllowed is what desk-session writes to Sunshine's origin_web_ui_allowed.
-func webUIAllowed(vdi *vdiv1alpha1.VdiInstance) string {
-	if ptr.Deref(vdi.Spec.Expose.WebUI, false) {
+func webUIAllowed(settings *vdiv1alpha1.VdiClassSpec) string {
+	if ptr.Deref(settings.Expose.WebUI, false) {
 		return "wan"
 	}
 	return "lan"
@@ -983,8 +1005,14 @@ func labelManaged(obj metav1.Object, instance string) {
 	obj.SetLabels(labels)
 }
 
-// SetupWithManager registers the controller and its owned resources.
+// SetupWithManager registers the controller, its owned resources, and
+// the classes its instances name.
 func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	err := mgr.GetFieldIndexer().IndexField(
+		context.Background(), &vdiv1alpha1.VdiInstance{}, classNameField, indexClassName)
+	if err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vdiv1alpha1.VdiInstance{}).
 		Owns(&appsv1.Deployment{}).
@@ -995,6 +1023,7 @@ func (r *VdiInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
+		Watches(&vdiv1alpha1.VdiClass{}, handler.EnqueueRequestsFromMapFunc(r.desktopsOfClass)).
 		Named("vdiinstance").
 		Complete(r)
 }

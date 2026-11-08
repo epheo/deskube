@@ -95,16 +95,27 @@ type PairingSpec struct {
 	ClientName string `json:"clientName,omitempty"`
 }
 
-// VdiInstanceSpec defines one desktop for one owner.
+// VdiInstanceSpec defines one desktop for one owner. A field it sets
+// wins over its class's; expose, stream and home merge field by field.
+// +kubebuilder:validation:XValidation:rule="has(self.image) || has(self.className)",message="needs image or className"
 type VdiInstanceSpec struct {
-	// Image is the desktop's container image.
+	// ClassName names the VdiClass this desktop takes what it leaves
+	// unset from. While the class does not exist the desktop waits. A
+	// class change reaches the desktop, and restarts it when the pod
+	// changes.
 	// +kubebuilder:validation:MinLength=1
-	Image string `json:"image"`
+	// +optional
+	ClassName string `json:"className,omitempty"`
+	// Image is the desktop's container image, its class's when empty.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Image string `json:"image,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-	// Resources bound the desktop's CPU and memory.
+	// Resources bound the desktop's CPU and memory. When set they replace
+	// the class's whole: requests and limits are not merged by resource.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 	// +optional
@@ -214,6 +225,7 @@ type VdiInstanceStatus struct {
 // +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`
 // +kubebuilder:printcolumn:name="Session",type=string,JSONPath=`.status.sessionState`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
+// +kubebuilder:printcolumn:name="Class",type=string,JSONPath=`.spec.className`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // VdiInstance is a streamed virtual desktop.
@@ -221,6 +233,7 @@ type VdiInstance struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +required
 	Spec   VdiInstanceSpec   `json:"spec,omitempty"`
 	Status VdiInstanceStatus `json:"status,omitempty"`
 }

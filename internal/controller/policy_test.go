@@ -184,7 +184,8 @@ var _ = Describe("Owner policy", Ordered, func() {
 				Spec:       vdiv1alpha1.VdiInstanceSpec{Image: testImage, Owner: o},
 			}
 			Expect(k8sClient.Create(ctx, vdi)).To(Succeed())
-			Expect(r.ensureOwnerRBAC(ctx, vdi)).To(Succeed())
+			settings := resolve(vdi, nil)
+			Expect(r.ensureOwnerRBAC(ctx, vdi, &settings)).To(Succeed())
 		}
 		owner, admin = userClient("alice"), userClient("dana")
 
@@ -213,6 +214,8 @@ var _ = Describe("Owner policy", Ordered, func() {
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"image": "evil.example/x:1"}))).To(byPolicy("spec.image"))
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"nestedSandboxes": true}))).To(byPolicy("spec.nestedSandboxes"))
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"owner": "mallory"}))).To(byPolicy("spec.owner"))
+		// A class carries an image and sandboxes of its own.
+		Expect(patch(owner, "alice-desk", spec(map[string]any{"className": "steam"}))).To(byPolicy("spec.className"))
 		// Publishing the web UI would also hand the owner its admin password.
 		webUI := spec(map[string]any{"expose": map[string]any{"webUI": true}})
 		Expect(patch(owner, "alice-desk", webUI)).To(byPolicy("spec.expose"))
@@ -221,6 +224,7 @@ var _ = Describe("Owner policy", Ordered, func() {
 
 		vdi := stored("alice-desk")
 		Expect(vdi.Spec.Image).To(Equal(testImage))
+		Expect(vdi.Spec.ClassName).To(BeEmpty())
 		Expect(vdi.Spec.NestedSandboxes).To(BeNil())
 		Expect(vdi.Spec.Expose.WebUI).To(BeNil())
 		Expect(vdi.Finalizers).To(BeEmpty())
