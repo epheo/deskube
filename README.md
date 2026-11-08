@@ -15,7 +15,7 @@ behalf.
                 --> PersistentVolumeClaim (the home)
                 --> Service (6 ports, 7 with the web UI; NodePort or LoadBalancer)
                 --> NetworkPolicy (the pod takes nothing else)
-                --> Secret (Sunshine admin password)
+                --> Secret (Sunshine admin password, a read-only file in the pod)
                 --> Role + RoleBinding for the owner
 
 The PIN in `spec.pairing` goes to Sunshine's admin API on the pod IP.
@@ -226,8 +226,12 @@ podman, no cluster: the desku.be-images README.
 - The operator does not hand a GPU to the pod yet; cluster desktops
   render and encode on the CPU. With podman the GPU path works.
 - The gaming images also need a GPU, see the first gap.
-- The pod's volume is group owned through OpenShift's fsGroup; plain
-  Kubernetes needs one set.
+- The home volume and the admin password file are group owned through
+  OpenShift's fsGroup; plain Kubernetes needs one set.
+- The admin password reaches the pod as a file named by
+  `DESKUBE_ADMIN_PASSWORD_FILE`, no longer as an environment variable.
+  An image whose desk-session does not read it fails to pair, and its
+  web UI takes the first password anyone sets.
 - A private registry needs a pull secret in every namespace that runs
   desktops, linked to its default service account or named in
   `spec.imagePullSecrets`.

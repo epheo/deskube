@@ -194,7 +194,18 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(env["DESKUBE_PORT"].Value).To(Equal("30016"))
 		Expect(env["DESKUBE_NAME"].Value).To(Equal("alice"))
 		Expect(env["DESKUBE_KEYBOARD_LAYOUT"].Value).To(Equal("fr"))
-		Expect(env["DESKUBE_ADMIN_PASSWORD"].ValueFrom.SecretKeyRef.Name).To(Equal("alice-sunshine-admin"))
+		for _, e := range c.Env {
+			Expect(e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil).To(BeTrue(), "%s comes from a Secret", e.Name)
+		}
+		Expect(env["DESKUBE_ADMIN_PASSWORD_FILE"].Value).To(Equal("/run/deskube/admin/password"))
+		Expect(pod.Volumes).To(ContainElement(corev1.Volume{Name: "admin", VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  "alice-sunshine-admin",
+				Items:       []corev1.KeyToPath{{Key: "password", Path: "password"}},
+				DefaultMode: ptr.To(int32(0o440)),
+			},
+		}}))
+		Expect(c.VolumeMounts).To(ContainElement(corev1.VolumeMount{Name: "admin", MountPath: "/run/deskube/admin", ReadOnly: true}))
 		Expect(env["DESKUBE_HOST_IP"].ValueFrom.FieldRef.FieldPath).To(Equal("status.hostIP"))
 		Expect(env["DESKUBE_WEB_UI_ALLOWED"].Value).To(Equal("lan"))
 		Expect(env).NotTo(HaveKey("DESKUBE_ENCODER"))

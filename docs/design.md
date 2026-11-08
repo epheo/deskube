@@ -78,6 +78,17 @@ The pod gets no service account token, drops every capability, and
 runs under the default seccomp profile. Its readiness probe is
 Sunshine's `/serverinfo`.
 
+The admin password reaches the pod as a read-only file named by
+`DESKUBE_ADMIN_PASSWORD_FILE`.
+As an environment variable it sat in PID 1's environment and in the
+runtime's container config.
+The file is 0440, read through the group: OpenShift's arbitrary UID is
+in group 0 and the fsGroup, a sandbox desktop's UID 1000 in fsGroup 1000.
+The desktop's own programs can still read it, as they could PID 1's
+environment.
+An image whose desk-session does not read the file gets no password:
+its pairing fails and its web UI takes the first password anyone sets.
+
 ### Pairing
 
 The owner writes the PIN Moonlight shows into `spec.pairing` of their

@@ -62,6 +62,8 @@ const (
 	containerName = "desktop"
 	// The image's user and home; an arbitrary UID gets the same home.
 	homePath = "/home/desk"
+	// Not under /etc/deskube, which the image fills.
+	adminPasswordDir = "/run/deskube/admin"
 	// What a sandbox desktop runs as inside its own user namespace.
 	desktopUID = int64(1000)
 	// OpenShift's ClusterRole that grants use of the nested-container SCC.
@@ -486,6 +488,13 @@ func fillPodSpec(
 		{Name: "shm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
 			Medium: corev1.StorageMediumMemory, SizeLimit: ptr.To(resource.MustParse("1Gi")),
 		}}},
+		// Read through the group: OpenShift's arbitrary UID is in group 0
+		// and the fsGroup, a sandbox desktop's UID 1000 in fsGroup 1000.
+		{Name: "admin", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName:  adminSecretName(vdi),
+			Items:       []corev1.KeyToPath{{Key: "password", Path: "password"}},
+			DefaultMode: ptr.To(int32(0o440)),
+		}}},
 	}
 
 	if len(pod.Containers) != 1 || pod.Containers[0].Name != containerName {
@@ -500,9 +509,8 @@ func fillPodSpec(
 	c.Env = []corev1.EnvVar{
 		{Name: "DESKUBE_NAME", Value: vdi.Name},
 		{Name: "DESKUBE_PORT", Value: strconv.Itoa(int(base))},
-		{Name: "DESKUBE_ADMIN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: adminSecretName(vdi)}, Key: "password",
-		}}},
+		// In the environment it sat in PID 1's environ and the runtime's container config.
+		{Name: "DESKUBE_ADMIN_PASSWORD_FILE", Value: adminPasswordDir + "/password"},
 		// The web UI only accepts writes from origins it was told about.
 		// The node address is what a NodePort client browses to.
 		{Name: "DESKUBE_HOST_IP", ValueFrom: &corev1.EnvVarSource{
@@ -529,6 +537,7 @@ func fillPodSpec(
 	c.VolumeMounts = []corev1.VolumeMount{
 		{Name: "home", MountPath: homePath},
 		{Name: "shm", MountPath: "/dev/shm"},
+		{Name: "admin", MountPath: adminPasswordDir, ReadOnly: true},
 	}
 	c.SecurityContext = &corev1.SecurityContext{
 		AllowPrivilegeEscalation: ptr.To(false),
