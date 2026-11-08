@@ -8,6 +8,7 @@ export const CONDITION_READY = 'Ready';
 export const CONDITION_UPDATE_PENDING = 'UpdatePending';
 export const CONDITION_SECCOMP_FILTERED = 'SeccompFiltered';
 export const REASON_CLASS_NOT_FOUND = 'ClassNotFound';
+export const REASON_SECCOMP_PENDING = 'ProfilePending';
 
 export const ALL_NAMESPACES = '#ALL_NS#';
 export const BASE_PATH = '/desktops';

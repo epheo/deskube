@@ -36,8 +36,10 @@ import {
 import {
   ALL_NAMESPACES,
   CONDITION_READY,
+  CONDITION_SECCOMP_FILTERED,
   CONDITION_UPDATE_PENDING,
   REASON_CLASS_NOT_FOUND,
+  REASON_SECCOMP_PENDING,
   VdiInstanceGVK,
 } from '../constants';
 import { useNamespaceSync } from '../hooks/useNamespaceSync';
@@ -78,12 +80,13 @@ const condition = (vdi: VdiInstance, type: string): Condition | undefined =>
 const DesktopStatus: FC<{ vdi: VdiInstance }> = ({ vdi }) => {
   const classMissing = condition(vdi, CONDITION_READY)?.reason === REASON_CLASS_NOT_FOUND;
   const update = condition(vdi, CONDITION_UPDATE_PENDING);
+  const seccomp = condition(vdi, CONDITION_SECCOMP_FILTERED);
   const request = vdi.spec.pairing;
   // An outcome for another PIN says nothing about the one waiting.
   const outcome = request && vdi.status?.pairing?.pin !== request.pin ? undefined : vdi.status?.pairing;
   const pairing = outcome?.phase ?? (request ? 'Pending' : undefined);
   return (
-    <LabelGroup numLabels={4}>
+    <LabelGroup numLabels={5}>
       <Label color={phaseColor(vdi.status?.phase)}>{vdi.status?.phase ?? 'Pending'}</Label>
       {classMissing && (
         <Label color="red" variant="outline">
@@ -94,6 +97,13 @@ const DesktopStatus: FC<{ vdi: VdiInstance }> = ({ vdi }) => {
         <Tooltip content={update.message}>
           <Label color="orange" variant="outline">
             Update waits for the session to end
+          </Label>
+        </Tooltip>
+      )}
+      {seccomp?.status === 'False' && (
+        <Tooltip content={seccomp.message}>
+          <Label color="orange" variant="outline">
+            {seccomp.reason === REASON_SECCOMP_PENDING ? 'Waiting for its seccomp profile' : 'No seccomp filter'}
           </Label>
         </Tooltip>
       )}
