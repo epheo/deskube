@@ -76,6 +76,8 @@ const (
 
 	requeueStarting = 10 * time.Second
 	requeueReady    = 30 * time.Second
+	// Not a second, as when a session ends: each try may wait out the probe's timeout.
+	requeueSessionUnknown = 5 * time.Second
 
 	// The manager's cache holds no object it made without this label.
 	labelManagedBy = "app.kubernetes.io/managed-by"
@@ -212,25 +214,32 @@ func (r *VdiInstanceReconciler) reconcile(ctx context.Context, vdi *vdiv1alpha1.
 		}
 		return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 	}
-	dep, waiting, err := r.ensureDeployment(ctx, vdi, &settings, pullSecrets, seccomp.Profile)
+	dep, held, live, err := r.ensureDeployment(ctx, vdi, &settings, pullSecrets, seccomp.Profile)
 	if err != nil {
 		return r.fail(ctx, vdi, ConditionPodReady, "DeploymentApply", err)
 	}
-	if len(waiting) > 0 {
-		setCondition(vdi, ConditionUpdatePending, true, "SessionBusy",
-			"waiting for the session to end: "+strings.Join(waiting, ", "))
-	} else {
+	switch {
+	case held == nil:
 		setCondition(vdi, ConditionUpdatePending, false, "UpToDate", "")
+	case held.reason == reasonSessionUnknown:
+		setCondition(vdi, ConditionUpdatePending, true, held.reason,
+			"waiting for Sunshine to say whether a session runs: "+strings.Join(held.changes, ", "))
+	default:
+		setCondition(vdi, ConditionUpdatePending, true, held.reason,
+			"waiting for the session to end: "+strings.Join(held.changes, ", "))
 	}
 	if err := r.ensureOwnerRBAC(ctx, vdi, &settings); err != nil {
 		return ctrl.Result{}, err
 	}
-	result, err := r.updateStatus(ctx, vdi, &settings, dep, svc)
+	result, err := r.updateStatus(ctx, vdi, &settings, dep, svc, live)
 	if err != nil {
 		return result, err
 	}
-	// This pass saw the session end; the next one changes the pod.
-	if len(waiting) > 0 && vdi.Status.SessionState != sessionBusy {
+	switch {
+	case held != nil && held.reason == reasonSessionUnknown:
+		result.RequeueAfter = requeueSessionUnknown
+	case held != nil && vdi.Status.SessionState != sessionBusy:
+		// This pass saw the session end; the next one changes the pod.
 		result.RequeueAfter = time.Second
 	}
 	return r.reconcilePairing(ctx, vdi, result)
@@ -450,10 +459,10 @@ func (r *VdiInstanceReconciler) ensureSandboxIdentity(
 func (r *VdiInstanceReconciler) ensureDeployment(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
 	pullSecrets []corev1.LocalObjectReference, seccomp *corev1.SeccompProfile,
-) (dep *appsv1.Deployment, waiting []string, err error) {
+) (dep *appsv1.Deployment, held *heldUpdate, live *sessionRead, err error) {
 	dep = &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: vdi.Name, Namespace: vdi.Namespace}}
 	_, err = r.createOrUpdate(ctx, dep, func() error {
-		waiting = nil
+		held, live = nil, nil
 		// The pod keeps this one label: another would restart every desktop.
 		labels := map[string]string{labelInstance: vdi.Name}
 		running := vdi.Spec.Running == nil || *vdi.Spec.Running
@@ -472,15 +481,49 @@ func (r *VdiInstanceReconciler) ensureDeployment(
 		dep.Spec.Template.Labels = labels
 		fillPodSpec(vdi, settings, &dep.Spec.Template.Spec, pullSecrets, seccomp)
 		// A new template restarts the pod and would end the session under
-		// its user. Busy is as of the last probe, at most requeueReady old.
-		if dep.UID != "" && running && vdi.Status.SessionState == sessionBusy {
-			if waiting = templateChanges(current, &dep.Spec.Template); len(waiting) > 0 {
-				dep.Spec.Template = *current
+		// its user. Without a ready pod there is no session to end.
+		if dep.UID != "" && running && dep.Status.ReadyReplicas > 0 {
+			if changes := templateChanges(current, &dep.Spec.Template); len(changes) > 0 {
+				reason, read, holdErr := r.sessionHold(ctx, vdi)
+				if holdErr != nil {
+					return holdErr
+				}
+				live = read
+				if reason != "" {
+					held = &heldUpdate{reason: reason, changes: changes}
+					dep.Spec.Template = *current
+				}
 			}
 		}
 		return controllerutil.SetControllerReference(vdi, dep, r.Scheme)
 	})
-	return dep, waiting, err
+	return dep, held, live, err
+}
+
+// sessionHold says why a pod change must wait, empty when it need not.
+// Busy as of the last probe is reason enough. Free is up to requeueReady
+// old, so Sunshine is asked again. No answer is no proof nobody watches.
+func (r *VdiInstanceReconciler) sessionHold(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance,
+) (string, *sessionRead, error) {
+	if vdi.Status.SessionState == sessionBusy {
+		return reasonSessionBusy, nil, nil
+	}
+	pod, err := r.findPod(ctx, vdi)
+	if err != nil {
+		return "", nil, err
+	}
+	live := r.readSession(ctx, vdi, pod)
+	if !live.answered() {
+		return reasonSessionUnknown, live, nil
+	}
+	switch live.info.SessionState() {
+	case sessionFree:
+		return "", live, nil
+	case sessionBusy:
+		return reasonSessionBusy, live, nil
+	}
+	return reasonSessionUnknown, live, nil
 }
 
 // fillPodSpec fills the pod in place. Fields it does not name keep what
@@ -711,9 +754,12 @@ func (r *VdiInstanceReconciler) ensureOwnerRBAC(
 
 var verbsRead = []string{"get", "list", "watch"}
 
+// updateStatus reuses live, Sunshine's answer to the pod change check
+// this pass, when there was one: the status then shows what the change
+// was decided on.
 func (r *VdiInstanceReconciler) updateStatus(
 	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, settings *vdiv1alpha1.VdiClassSpec,
-	dep *appsv1.Deployment, svc *corev1.Service,
+	dep *appsv1.Deployment, svc *corev1.Service, live *sessionRead,
 ) (ctrl.Result, error) {
 	running := vdi.Spec.Running == nil || *vdi.Spec.Running
 	vdi.Status.AdminSecret = adminSecretName(vdi)
@@ -742,20 +788,13 @@ func (r *VdiInstanceReconciler) updateStatus(
 	streaming := false
 	vdi.Status.SessionState = ""
 	if podReady && host != "" {
-		probe := r.Probe
-		if probe == nil {
-			probe = sunshine.GetServerInfo
+		if live == nil {
+			live = r.readSession(ctx, vdi, pod)
 		}
-		probeHost, perr := r.sunshineHost(vdi, pod)
-		if perr == nil {
-			var info *sunshine.ServerInfo
-			info, perr = probe(ctx, probeHost, vdi.Status.BasePort)
-			if perr == nil && info.StatusCode == 200 {
-				streaming = true
-				vdi.Status.SessionState = info.SessionState()
-			}
+		if streaming = live.answered(); streaming {
+			vdi.Status.SessionState = live.info.SessionState()
 		}
-		setCondition(vdi, ConditionStreamingReady, streaming, "ServerInfo", errString(perr))
+		setCondition(vdi, ConditionStreamingReady, streaming, "ServerInfo", errString(live.err))
 	} else {
 		setCondition(vdi, ConditionStreamingReady, false, "PodNotReady", "")
 	}
@@ -783,6 +822,22 @@ func (r *VdiInstanceReconciler) updateStatus(
 	default:
 		return ctrl.Result{RequeueAfter: requeueStarting}, nil
 	}
+}
+
+// readSession asks Sunshine's /serverinfo whether a session runs.
+func (r *VdiInstanceReconciler) readSession(
+	ctx context.Context, vdi *vdiv1alpha1.VdiInstance, pod *corev1.Pod,
+) *sessionRead {
+	host, err := r.sunshineHost(vdi, pod)
+	if err != nil {
+		return &sessionRead{err: err}
+	}
+	probe := r.Probe
+	if probe == nil {
+		probe = sunshine.GetServerInfo
+	}
+	info, err := probe(ctx, host, vdi.Status.BasePort)
+	return &sessionRead{info: info, err: err}
 }
 
 // sunshineHost is where the manager reaches Sunshine, for /serverinfo
@@ -857,7 +912,7 @@ func (r *VdiInstanceReconciler) trackIdle(
 		vdi.Status.LastActive = &now
 	}
 	// Zero is how a desktop turns off its class's timeout.
-	if timeout == nil || timeout.Duration <= 0 || vdi.Status.SessionState != "free" {
+	if timeout == nil || timeout.Duration <= 0 || vdi.Status.SessionState != sessionFree {
 		return 0, nil
 	}
 	left := timeout.Duration - now.Sub(vdi.Status.LastActive.Time)

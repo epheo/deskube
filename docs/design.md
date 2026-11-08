@@ -295,19 +295,30 @@ desktop in a session keeps its pod.
 - ensureDeployment copies the current template, fills the wanted one
   in place, and compares the two with semantic equality, as
   CreateOrUpdate does: a field the API server defaulted is no change.
-- While running and busy, it puts the copy back. Replicas still apply:
-  stopping always works.
+- While running, with a ready pod and maybe a session, it puts the
+  copy back. Replicas still apply: stopping always works.
 - UpdatePending is True, its message the changed fields, the desktop
   container's by their own name.
-- Busy is status.sessionState, from the previous pass's probe. The
-  pass that sees the session end requeues in a second, and that pass
-  changes the pod.
-- A stopped desktop, or one about to stop, takes the change at once.
-- A session started after the last probe, up to 30 seconds, can still
-  be cut. Probing again before every write was not worth it.
+- Busy as of the previous pass's probe holds the change without asking
+  again. The pass that sees the session end requeues in a second.
+- Anything else, free included, may be 30 seconds stale. Before
+  changing the pod the pass asks Sunshine again, through the same
+  probe function and host.
+- Only a change asks: an unchanged desktop makes no extra call.
+- The status takes that answer instead of asking again: a pass asks
+  Sunshine once at most, and the status shows what the change was
+  decided on.
+- Busy now holds the change, and status.sessionState says busy.
+- No answer holds it too, reason SessionUnknown: an unreachable
+  Sunshine is no proof nobody watches. The pass requeues in 5 seconds.
+- Without a ready pod there is no session: the change goes in at once.
+  So it does on a stopped desktop, or one about to stop.
 - The Service, NetworkPolicy and owner Role are not held. A webUI
   change thus opens or closes the port at once while Sunshine keeps its
   old origin rule until the restart.
+- Cost: a Sunshine the manager cannot reach while its pod stays ready
+  holds every pod change, an operator upgrade's too, until the desktop
+  stops.
 
 ## Order of work
 

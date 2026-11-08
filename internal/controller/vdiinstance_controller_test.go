@@ -57,6 +57,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		r         *VdiInstanceReconciler
 		probe     *sunshine.ServerInfo
 		probedVia string
+		probes    int
 	)
 
 	reconcile := func(name string) {
@@ -126,6 +127,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			ManagerNamespace: "deskube-system",
 			Probe: func(_ context.Context, host string, _ int32) (*sunshine.ServerInfo, error) {
 				probedVia = host
+				probes++
 				if probe == nil {
 					return nil, errors.New("connection refused")
 				}
@@ -759,6 +761,27 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			probe = &sunshine.ServerInfo{StatusCode: 200, State: state}
 			reconcile("jo")
 		}
+		sessionState := func() string {
+			vdi := &vdiv1alpha1.VdiInstance{}
+			get("jo", vdi)
+			return vdi.Status.SessionState
+		}
+		probesIn := func() int {
+			before := probes
+			reconcile("jo")
+			return probes - before
+		}
+		requeue := func() time.Duration {
+			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "jo", Namespace: testNS}})
+			Expect(err).NotTo(HaveOccurred())
+			return result.RequeueAfter
+		}
+		readyReplicas := func(n int32) {
+			dep := &appsv1.Deployment{}
+			get("jo", dep)
+			dep.Status.Replicas, dep.Status.ReadyReplicas = n, n
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+		}
 
 		BeforeAll(func() {
 			class := &vdiv1alpha1.VdiClass{
@@ -795,26 +818,85 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			Expect(cond.Message).To(Equal("waiting for the session to end: image"))
 
 			probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
-			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "jo", Namespace: testNS}})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(Equal(time.Second))
+			Expect(requeue()).To(Equal(time.Second))
 			reconcile("jo")
 			Expect(image()).To(Equal("registry.example/jo:2"))
 			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
 		})
 
-		It("changes a free desktop's pod at once", func() {
+		It("changes a free desktop's pod once Sunshine says again it is free", func() {
+			Expect(sessionState()).To(Equal("free"))
 			classImage("registry.example/jo:3")
-			reconcile("jo")
+			// The answer that let the change in is the status's too.
+			Expect(probesIn()).To(Equal(1))
 			Expect(image()).To(Equal("registry.example/jo:3"))
+			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("keeps the pod of a session started since the last probe", func() {
+			Expect(sessionState()).To(Equal("free"))
+			probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_BUSY"}
+			classImage("registry.example/jo:4")
+			Expect(probesIn()).To(Equal(1))
+			Expect(image()).To(Equal("registry.example/jo:3"))
+			cond := pending()
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("SessionBusy"))
+			Expect(cond.Message).To(Equal("waiting for the session to end: image"))
+			Expect(sessionState()).To(Equal("busy"))
+
+			probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+			Expect(requeue()).To(Equal(time.Second))
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:4"))
+		})
+
+		It("keeps the pod and asks again soon when Sunshine does not answer", func() {
+			Expect(sessionState()).To(Equal("free"))
+			probe = nil
+			classImage("registry.example/jo:5")
+			Expect(requeue()).To(Equal(requeueSessionUnknown))
+			Expect(image()).To(Equal("registry.example/jo:4"))
+			cond := pending()
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("SessionUnknown"))
+			Expect(cond.Message).To(Equal("waiting for Sunshine to say whether a session runs: image"))
+
+			// The last state is now unknown, not free: still no restart.
+			Expect(sessionState()).To(BeEmpty())
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:4"))
+
+			probe = &sunshine.ServerInfo{StatusCode: 200, State: "SUNSHINE_SERVER_FREE"}
+			reconcile("jo")
+			Expect(image()).To(Equal("registry.example/jo:5"))
+			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("asks Sunshine no more than the status does when nothing would change", func() {
+			dep := &appsv1.Deployment{}
+			get("jo", dep)
+			before := dep.ResourceVersion
+			Expect(probesIn()).To(Equal(1))
+			get("jo", dep)
+			Expect(dep.ResourceVersion).To(Equal(before))
+		})
+
+		It("changes the pod at once while it is not ready, whatever the last probe said", func() {
+			session("SUNSHINE_SERVER_BUSY")
+			readyReplicas(0)
+			DeferCleanup(readyReplicas, int32(1))
+			classImage("registry.example/jo:6")
+			Expect(probesIn()).To(BeZero())
+			Expect(image()).To(Equal("registry.example/jo:6"))
 			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("stops a busy desktop at once", func() {
 			session("SUNSHINE_SERVER_BUSY")
-			classImage("registry.example/jo:4")
+			classImage("registry.example/jo:7")
 			reconcile("jo")
-			Expect(image()).To(Equal("registry.example/jo:3"))
+			Expect(image()).To(Equal("registry.example/jo:6"))
 
 			vdi := &vdiv1alpha1.VdiInstance{}
 			get("jo", vdi)
@@ -825,7 +907,7 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 			get("jo", dep)
 			Expect(*dep.Spec.Replicas).To(BeZero())
 			// Stopped, the pod change waits no longer.
-			Expect(image()).To(Equal("registry.example/jo:4"))
+			Expect(image()).To(Equal("registry.example/jo:7"))
 			Expect(pending().Status).To(Equal(metav1.ConditionFalse))
 		})
 	})

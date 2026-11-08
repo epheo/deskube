@@ -188,8 +188,14 @@ While a session runs, the change waits for it to end:
   or when the desktop stops;
 - `running: false` stops a desktop at once, session or not.
 
-Busy is as of the last probe, every 30 seconds: a session started in
-between can still be cut.
+Before a restart the operator asks Sunshine again, so a session
+started since the last probe keeps its pod too.
+When Sunshine does not answer, the change waits as well: no answer is
+no proof nobody watches.
+`UpdatePending` then says `waiting for Sunshine to say whether a
+session runs`, and the operator asks again within seconds.
+A desktop without a ready pod has no session: it takes the change at
+once.
 The Service, NetworkPolicy and owner Role follow at once; only the pod
 waits.
 

@@ -17,14 +17,39 @@ limitations under the License.
 package controller
 
 import (
+	"net/http"
 	"reflect"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+
+	"github.com/epheo/deskube/internal/sunshine"
 )
 
-const sessionBusy = "busy"
+const (
+	sessionBusy = "busy"
+	sessionFree = "free"
+
+	reasonSessionBusy    = "SessionBusy"
+	reasonSessionUnknown = "SessionUnknown"
+)
+
+// heldUpdate is a pod change kept back while a session may run.
+type heldUpdate struct {
+	reason  string
+	changes []string
+}
+
+// sessionRead is one answer from Sunshine's /serverinfo.
+type sessionRead struct {
+	info *sunshine.ServerInfo
+	err  error
+}
+
+func (s *sessionRead) answered() bool {
+	return s.err == nil && s.info.StatusCode == http.StatusOK
+}
 
 // templateChanges names what differs between the running pod template
 // and the wanted one, the desktop container's fields by their own name.
