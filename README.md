@@ -255,9 +255,13 @@ namespace; admins see all.
 
     make console-deploy
 
-CI publishes `ghcr.io/epheo/deskube-console-plugin:main`. To build
-your own, `make console-build console-push CONSOLE_IMG=<image>`, then
-pass the same `CONSOLE_IMG` to `make console-deploy`.
+For every commit on main, CI publishes
+`ghcr.io/epheo/deskube-console-plugin:sha-<first 7 characters of the commit>`.
+`make console-deploy` takes the one of the checked out commit.
+The plugin, like the manager, does not pull its image again when it
+restarts.
+To build your own, `make console-build console-push CONSOLE_IMG=<image>`,
+then pass the same `CONSOLE_IMG` to `make console-deploy`.
 
 The deploy target registers the ConsolePlugin and enables it in the
 console operator. The console pods restart once, then the item appears.

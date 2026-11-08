@@ -196,7 +196,8 @@ endef
 
 ##@ Console plugin
 
-CONSOLE_IMG ?= ghcr.io/epheo/deskube-console-plugin:main
+# CI's image of the checked out commit. The plugin never pulls again, so not :main.
+CONSOLE_IMG ?= ghcr.io/epheo/deskube-console-plugin:sha-$(shell git rev-parse HEAD | cut -c1-7)
 
 .PHONY: console-build
 console-build: ## Build the console plugin image.
@@ -208,6 +209,7 @@ console-push: ## Push the console plugin image.
 
 .PHONY: console-deploy
 console-deploy: kustomize ## Deploy the plugin and enable it in the console operator.
+	cd console/deploy && $(KUSTOMIZE) edit set image deskube-console-plugin=${CONSOLE_IMG}
 	$(KUSTOMIZE) build console/deploy | $(KUBECTL) apply -f -
 	$(KUBECTL) get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' | grep -q deskube-console-plugin || \
 	  $(KUBECTL) patch consoles.operator.openshift.io cluster --type=json \

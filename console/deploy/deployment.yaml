@@ -24,7 +24,9 @@ spec:
       containers:
         - name: console-plugin
           image: deskube-console-plugin:latest
-          imagePullPolicy: Always
+          # A restart must not wait on the registry.
+          # Deploy a sha- tag or a digest: a moving tag goes stale on the node.
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9443
               protocol: TCP
