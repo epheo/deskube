@@ -17,4 +17,11 @@ resources:
   kind: VdiInstance
   path: github.com/epheo/deskube/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+  domain: desku.be
+  group: vdi
+  kind: VdiClass
+  path: github.com/epheo/deskube/api/v1alpha1
+  version: v1alpha1
 version: "3"

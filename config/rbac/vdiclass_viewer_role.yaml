@@ -1,0 +1,17 @@
+# permissions to view vdiclasses.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: deskube
+    app.kubernetes.io/managed-by: kustomize
+  name: vdiclass-viewer-role
+rules:
+- apiGroups:
+  - vdi.desku.be
+  resources:
+  - vdiclasses
+  verbs:
+  - get
+  - list
+  - watch

@@ -412,7 +412,9 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		lb := &vdiv1alpha1.VdiInstance{
 			ObjectMeta: metav1.ObjectMeta{Name: "lb", Namespace: testNS},
 			Spec: vdiv1alpha1.VdiInstanceSpec{
-				Image: testImage, Expose: vdiv1alpha1.ExposeSpec{Type: vdiv1alpha1.ExposeLoadBalancer},
+				Image: testImage, Expose: vdiv1alpha1.ExposeSpec{
+					ClassExposeSpec: vdiv1alpha1.ClassExposeSpec{Type: vdiv1alpha1.ExposeLoadBalancer},
+				},
 			},
 		}
 		Expect(k8sClient.Create(ctx, lb)).To(Succeed())

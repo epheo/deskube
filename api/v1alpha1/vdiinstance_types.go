@@ -43,11 +43,22 @@ const (
 	ExposeLoadBalancer ExposeType = "LoadBalancer"
 )
 
-// ExposeSpec controls the Service in front of the desktop.
-type ExposeSpec struct {
+// ClassExposeSpec is the part of ExposeSpec a class may set too.
+type ClassExposeSpec struct {
 	// Type is NodePort when empty.
 	// +optional
 	Type ExposeType `json:"type,omitempty"`
+	// WebUI publishes Sunshine's admin web UI, on base+1, and lets it
+	// answer any address instead of private ones only. Changing it
+	// restarts the desktop. Behind a LoadBalancer the web UI also needs
+	// host: it refuses changes from an address it was not started with.
+	// +optional
+	WebUI *bool `json:"webUI,omitempty"`
+}
+
+// ExposeSpec controls the Service in front of the desktop.
+type ExposeSpec struct {
+	ClassExposeSpec `json:",inline"`
 	// BasePort pins the Sunshine base port. Allocated when empty.
 	// Moonlight derives the other ports from it: -5, +1, +9, +10, +11, +21.
 	// +kubebuilder:validation:Minimum=1029
@@ -57,12 +68,6 @@ type ExposeSpec struct {
 	// Host overrides the address reported to clients, for example a DNS name.
 	// +optional
 	Host string `json:"host,omitempty"`
-	// WebUI publishes Sunshine's admin web UI, on base+1, and lets it
-	// answer any address instead of private ones only. Changing it
-	// restarts the desktop. Behind a LoadBalancer the web UI also needs
-	// host: it refuses changes from an address it was not started with.
-	// +optional
-	WebUI *bool `json:"webUI,omitempty"`
 }
 
 // StreamSpec is passed to the session inside the desktop.

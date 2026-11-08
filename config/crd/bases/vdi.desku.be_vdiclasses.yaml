@@ -1,0 +1,211 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: vdiclasses.vdi.desku.be
+spec:
+  group: vdi.desku.be
+  names:
+    kind: VdiClass
+    listKind: VdiClassList
+    plural: vdiclasses
+    singular: vdiclass
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          VdiClass is a kind of desktop an admin offers, as a StorageClass is a
+          kind of volume. A change reaches every desktop naming it, and
+          restarts the running ones whose pod it changes.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              VdiClassSpec is what an admin chooses for a kind of desktop. A
+              VdiInstance naming the class takes each field it leaves unset.
+            properties:
+              expose:
+                description: 'Expose has no basePort or host: those belong to one
+                  desktop.'
+                properties:
+                  type:
+                    description: Type is NodePort when empty.
+                    enum:
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                  webUI:
+                    description: |-
+                      WebUI publishes Sunshine's admin web UI, on base+1, and lets it
+                      answer any address instead of private ones only. Changing it
+                      restarts the desktop. Behind a LoadBalancer the web UI also needs
+                      host: it refuses changes from an address it was not started with.
+                    type: boolean
+                type: object
+              home:
+                description: |-
+                  Home applies to desktops whose home does not exist yet: a bound
+                  claim keeps its size and storage class.
+                properties:
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: Size is 20Gi when empty.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    description: StorageClassName is the cluster default when empty.
+                    type: string
+                type: object
+              idleTimeout:
+                description: IdleTimeout stops a desktop after this long without a
+                  session.
+                type: string
+              image:
+                description: Image is the desktops' container image.
+                minLength: 1
+                type: string
+              imagePullPolicy:
+                description: PullPolicy describes a policy for if/when to pull a container
+                  image
+                type: string
+              imagePullSecrets:
+                description: ImagePullSecrets name Secrets in each desktop's own namespace.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
+              nestedSandboxes:
+                description: |-
+                  NestedSandboxes is spec.nestedSandboxes of VdiInstance, for the
+                  desktops of this class.
+                type: boolean
+              resources:
+                description: |-
+                  Resources bound each desktop's CPU and memory. An instance that
+                  sets resources replaces these whole, not resource by resource.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              stream:
+                description: StreamSpec is passed to the session inside the desktop.
+                properties:
+                  encoder:
+                    description: |-
+                      Encoder is chosen by the image when empty: vaapi when the desktop
+                      has a GPU, software otherwise.
+                    enum:
+                    - software
+                    - vaapi
+                    type: string
+                  keyboardLayout:
+                    description: |-
+                      KeyboardLayout is up to four XKB layout names separated by commas,
+                      us when empty. Variants and options are not accepted.
+                    pattern: ^[a-z]{2,8}(,[a-z]{2,8}){0,3}$
+                    type: string
+                type: object
+            required:
+            - image
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}
