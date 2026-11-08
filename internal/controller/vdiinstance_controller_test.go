@@ -178,6 +178,12 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		pod := dep.Spec.Template.Spec
 		Expect(*pod.AutomountServiceAccountToken).To(BeFalse())
 		Expect(*pod.SecurityContext.RunAsNonRoot).To(BeTrue())
+		// Without placement the pod is what it was before placement existed.
+		Expect(pod.NodeSelector).To(BeNil())
+		Expect(pod.Tolerations).To(BeNil())
+		Expect(pod.Affinity).To(BeNil())
+		Expect(pod.PriorityClassName).To(BeEmpty())
+		Expect(pod.RuntimeClassName).To(BeNil())
 		Expect(pod.Volumes[0].PersistentVolumeClaim.ClaimName).To(Equal("alice-home"))
 		c := pod.Containers[0]
 		Expect(c.Image).To(Equal(testImage))

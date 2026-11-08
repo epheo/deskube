@@ -216,6 +216,9 @@ var _ = Describe("Owner policy", Ordered, func() {
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"owner": "mallory"}))).To(byPolicy("spec.owner"))
 		// A class carries an image and sandboxes of its own.
 		Expect(patch(owner, "alice-desk", spec(map[string]any{"className": "steam"}))).To(byPolicy("spec.className"))
+		// Placement could move a desktop onto nodes kept for others, or preempt their pods.
+		gpu := spec(map[string]any{"placement": map[string]any{"nodeSelector": map[string]any{"gpu": "yes"}}})
+		Expect(patch(owner, "alice-desk", gpu)).To(byPolicy("spec.placement"))
 		// Publishing the web UI would also hand the owner its admin password.
 		webUI := spec(map[string]any{"expose": map[string]any{"webUI": true}})
 		Expect(patch(owner, "alice-desk", webUI)).To(byPolicy("spec.expose"))
@@ -225,6 +228,7 @@ var _ = Describe("Owner policy", Ordered, func() {
 		vdi := stored("alice-desk")
 		Expect(vdi.Spec.Image).To(Equal(testImage))
 		Expect(vdi.Spec.ClassName).To(BeEmpty())
+		Expect(vdi.Spec.Placement).To(BeNil())
 		Expect(vdi.Spec.NestedSandboxes).To(BeNil())
 		Expect(vdi.Spec.Expose.WebUI).To(BeNil())
 		Expect(vdi.Finalizers).To(BeEmpty())

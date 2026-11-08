@@ -84,6 +84,26 @@ type StreamSpec struct {
 	KeyboardLayout string `json:"keyboardLayout,omitempty"`
 }
 
+// Placement picks the nodes a desktop runs on. Each field goes to the
+// pod as is. An instance field replaces the class's whole: nodeSelector
+// keys and tolerations are not merged. An empty one counts as unset.
+// Changing one restarts the desktop.
+type Placement struct {
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// PriorityClassName lets a desktop preempt pods of a lower priority.
+	// +optional
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+	// RuntimeClassName picks the container runtime, a GPU one for example.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	RuntimeClassName *string `json:"runtimeClassName,omitempty"`
+}
+
 // PairingSpec carries the PIN Moonlight shows, so nobody types it inside
 // the desktop.
 type PairingSpec struct {
@@ -96,7 +116,8 @@ type PairingSpec struct {
 }
 
 // VdiInstanceSpec defines one desktop for one owner. A field it sets
-// wins over its class's; expose, stream and home merge field by field.
+// wins over its class's; expose, stream, home and placement merge field
+// by field.
 // +kubebuilder:validation:XValidation:rule="has(self.image) || has(self.className)",message="needs image or className"
 type VdiInstanceSpec struct {
 	// ClassName names the VdiClass this desktop takes what it leaves
@@ -144,6 +165,9 @@ type VdiInstanceSpec struct {
 	// nested namespaces, unless the manager was given a profile to use.
 	// +optional
 	NestedSandboxes *bool `json:"nestedSandboxes,omitempty"`
+	// Placement is an admin's one-off for this desktop, over the class's.
+	// +optional
+	Placement *Placement `json:"placement,omitempty"`
 	// Pairing approves the Moonlight client waiting for this PIN. The
 	// operator removes it once the pairing succeeded or failed.
 	// +optional

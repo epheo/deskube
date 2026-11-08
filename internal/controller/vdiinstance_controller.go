@@ -477,6 +477,13 @@ func fillPodSpec(
 	if len(pod.ImagePullSecrets) == 0 {
 		pod.ImagePullSecrets = nil
 	}
+	// Unset is nil, as before placement existed: desktops without one keep their pod.
+	place := ptr.Deref(settings.Placement, vdiv1alpha1.Placement{})
+	pod.NodeSelector = place.NodeSelector
+	pod.Tolerations = place.Tolerations
+	pod.Affinity = place.Affinity
+	pod.PriorityClassName = place.PriorityClassName
+	pod.RuntimeClassName = place.RuntimeClassName
 	if pod.SecurityContext == nil {
 		pod.SecurityContext = &corev1.PodSecurityContext{}
 	}

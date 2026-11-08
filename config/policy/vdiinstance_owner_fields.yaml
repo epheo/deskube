@@ -54,6 +54,9 @@ spec:
   - expression: object.spec.?nestedSandboxes == oldObject.spec.?nestedSandboxes
     message: only an admin may change spec.nestedSandboxes
     reason: Forbidden
+  - expression: object.spec.?placement == oldObject.spec.?placement
+    message: only an admin may change spec.placement
+    reason: Forbidden
   # A finalizer would let an owner hold their desktop against deletion.
   - expression: object.metadata.?finalizers == oldObject.metadata.?finalizers
     message: only an admin may change metadata.finalizers

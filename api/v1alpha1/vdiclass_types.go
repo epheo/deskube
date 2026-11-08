@@ -52,6 +52,10 @@ type VdiClassSpec struct {
 	// desktops of this class.
 	// +optional
 	NestedSandboxes *bool `json:"nestedSandboxes,omitempty"`
+	// Placement picks the nodes of the class's desktops: GPU nodes and a
+	// GPU runtime, for one.
+	// +optional
+	Placement *Placement `json:"placement,omitempty"`
 }
 
 // +kubebuilder:object:root=true

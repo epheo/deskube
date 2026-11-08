@@ -66,7 +66,28 @@ func resolve(vdi *vdiv1alpha1.VdiInstance, class *vdiv1alpha1.VdiClass) vdiv1alp
 	out.Stream.Encoder = cmp.Or(own.Stream.Encoder, out.Stream.Encoder)
 	out.Stream.KeyboardLayout = cmp.Or(own.Stream.KeyboardLayout, out.Stream.KeyboardLayout)
 	out.NestedSandboxes = cmp.Or(own.NestedSandboxes, out.NestedSandboxes)
+	out.Placement = mergePlacement(own.Placement, out.Placement)
 	return out
+}
+
+func mergePlacement(own, class *vdiv1alpha1.Placement) *vdiv1alpha1.Placement {
+	if own == nil {
+		return class
+	}
+	if class == nil {
+		return own
+	}
+	out := *own
+	if len(out.NodeSelector) == 0 {
+		out.NodeSelector = class.NodeSelector
+	}
+	if len(out.Tolerations) == 0 {
+		out.Tolerations = class.Tolerations
+	}
+	out.Affinity = cmp.Or(out.Affinity, class.Affinity)
+	out.PriorityClassName = cmp.Or(out.PriorityClassName, class.PriorityClassName)
+	out.RuntimeClassName = cmp.Or(out.RuntimeClassName, class.RuntimeClassName)
+	return &out
 }
 
 // classOf returns the instance's class, nil when it names none.

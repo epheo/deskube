@@ -56,10 +56,22 @@ var _ = Describe("Desktop classes", Ordered, func() {
 		Expect(k8sClient.Create(ctx, c)).To(Succeed())
 		DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, c))).To(Succeed()) })
 	}
-	container := func(g Gomega, name string) corev1.Container {
+	pod := func(g Gomega, name string) corev1.PodSpec {
 		dep := &appsv1.Deployment{}
 		g.Expect(k8sClient.Get(ctx, key(name), dep)).To(Succeed())
-		return dep.Spec.Template.Spec.Containers[0]
+		return dep.Spec.Template.Spec
+	}
+	container := func(g Gomega, name string) corev1.Container { return pod(g, name).Containers[0] }
+	gpuNodes := &vdiv1alpha1.Placement{
+		NodeSelector: map[string]string{"gpu": "yes"},
+		Tolerations:  []corev1.Toleration{{Key: "gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
+		Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"a", "b"}}},
+			}}},
+		}},
+		PriorityClassName: "desktops",
+		RuntimeClassName:  ptr.To("gpu"),
 	}
 	env := func(c corev1.Container) map[string]string {
 		vars := map[string]string{}
@@ -134,9 +146,10 @@ var _ = Describe("Desktop classes", Ordered, func() {
 				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("2Gi")},
 				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},
 			},
-			Home:   vdiv1alpha1.HomeSpec{Size: resource.MustParse("10Gi"), StorageClassName: ptr.To("classy")},
-			Expose: vdiv1alpha1.ClassExposeSpec{WebUI: ptr.To(true)},
-			Stream: vdiv1alpha1.StreamSpec{KeyboardLayout: "de"},
+			Home:      vdiv1alpha1.HomeSpec{Size: resource.MustParse("10Gi"), StorageClassName: ptr.To("classy")},
+			Expose:    vdiv1alpha1.ClassExposeSpec{WebUI: ptr.To(true)},
+			Stream:    vdiv1alpha1.StreamSpec{KeyboardLayout: "de"},
+			Placement: gpuNodes,
 		})
 	})
 
@@ -175,6 +188,12 @@ var _ = Describe("Desktop classes", Ordered, func() {
 				pvc := home(g, name)
 				g.Expect(pvc.Resources.Requests.Storage().String()).To(Equal("10Gi"))
 				g.Expect(pvc.StorageClassName).To(HaveValue(Equal("classy")))
+				p := pod(g, name)
+				g.Expect(p.NodeSelector).To(Equal(gpuNodes.NodeSelector))
+				g.Expect(p.Tolerations).To(Equal(gpuNodes.Tolerations))
+				g.Expect(p.Affinity).To(Equal(gpuNodes.Affinity))
+				g.Expect(p.PriorityClassName).To(Equal("desktops"))
+				g.Expect(p.RuntimeClassName).To(HaveValue(Equal("gpu")))
 			}, "10s", "100ms").Should(Succeed(), name)
 		}
 		vdi := &vdiv1alpha1.VdiInstance{}
@@ -211,6 +230,8 @@ var _ = Describe("Desktop classes", Ordered, func() {
 			Home:   vdiv1alpha1.HomeSpec{Size: resource.MustParse("5Gi")},
 			Expose: vdiv1alpha1.ExposeSpec{ClassExposeSpec: vdiv1alpha1.ClassExposeSpec{WebUI: ptr.To(false)}},
 			Stream: vdiv1alpha1.StreamSpec{KeyboardLayout: "fr"},
+			// Whole by field: no gpu key, the class's tolerations.
+			Placement: &vdiv1alpha1.Placement{NodeSelector: map[string]string{"zone": "a"}},
 		})
 		Eventually(func(g Gomega) {
 			c := container(g, "own")
@@ -225,6 +246,10 @@ var _ = Describe("Desktop classes", Ordered, func() {
 			pvc := home(g, "own")
 			g.Expect(pvc.Resources.Requests.Storage().String()).To(Equal("5Gi"))
 			g.Expect(pvc.StorageClassName).To(HaveValue(Equal("classy")))
+			p := pod(g, "own")
+			g.Expect(p.NodeSelector).To(Equal(map[string]string{"zone": "a"}))
+			g.Expect(p.Tolerations).To(Equal(gpuNodes.Tolerations))
+			g.Expect(p.PriorityClassName).To(Equal("desktops"))
 		}, "10s", "100ms").Should(Succeed())
 	})
 
@@ -256,6 +281,12 @@ var _ = Describe("Desktop classes", Ordered, func() {
 	It("carries a class change to every desktop that takes it, and to no other", func() {
 		desktop("plain", 32544, vdiv1alpha1.VdiInstanceSpec{Image: testImage})
 		Eventually(func(g Gomega) { g.Expect(container(g, "plain").Image).To(Equal(testImage)) }, "10s", "100ms").Should(Succeed())
+		plain := pod(Default, "plain")
+		Expect(plain.NodeSelector).To(BeNil())
+		Expect(plain.Tolerations).To(BeNil())
+		Expect(plain.Affinity).To(BeNil())
+		Expect(plain.PriorityClassName).To(BeEmpty())
+		Expect(plain.RuntimeClassName).To(BeNil())
 		untouched := map[string]string{}
 		for _, name := range []string{"own", "waiting", "plain"} {
 			untouched[name] = version(name)
