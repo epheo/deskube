@@ -33,7 +33,8 @@ export const PairModal: FC<Props> = ({ desktop, onClose }) => {
   const [model] = useK8sModel(VdiInstanceGVK);
   const [pin, setPin] = useState('');
   const [clientName, setClientName] = useState('');
-  const [sentPin, setSentPin] = useState<string | null>(null);
+  // A PIN still on the desktop is followed, not asked for again.
+  const [sentPin, setSentPin] = useState<string | null>(desktop.spec.pairing?.pin ?? null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -112,6 +113,10 @@ export const PairModal: FC<Props> = ({ desktop, onClose }) => {
         ) : phase === 'Failed' ? (
           <Button variant="primary" onClick={reset}>
             Try again
+          </Button>
+        ) : phase === 'Pending' ? (
+          <Button variant="secondary" onClick={reset}>
+            Use another PIN
           </Button>
         ) : null}
         <Button variant="link" onClick={onClose}>

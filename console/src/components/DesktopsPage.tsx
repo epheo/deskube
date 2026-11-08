@@ -78,6 +78,10 @@ const condition = (vdi: VdiInstance, type: string): Condition | undefined =>
 const DesktopStatus: FC<{ vdi: VdiInstance }> = ({ vdi }) => {
   const classMissing = condition(vdi, CONDITION_READY)?.reason === REASON_CLASS_NOT_FOUND;
   const update = condition(vdi, CONDITION_UPDATE_PENDING);
+  const request = vdi.spec.pairing;
+  // An outcome for another PIN says nothing about the one waiting.
+  const outcome = request && vdi.status?.pairing?.pin !== request.pin ? undefined : vdi.status?.pairing;
+  const pairing = outcome?.phase ?? (request ? 'Pending' : undefined);
   return (
     <LabelGroup numLabels={4}>
       <Label color={phaseColor(vdi.status?.phase)}>{vdi.status?.phase ?? 'Pending'}</Label>
@@ -90,6 +94,20 @@ const DesktopStatus: FC<{ vdi: VdiInstance }> = ({ vdi }) => {
         <Tooltip content={update.message}>
           <Label color="orange" variant="outline">
             Update waits for the session to end
+          </Label>
+        </Tooltip>
+      )}
+      {pairing === 'Pending' && (
+        <Tooltip content={outcome?.message ?? 'The PIN has not reached the desktop yet.'}>
+          <Label color="blue" variant="outline">
+            Pairing
+          </Label>
+        </Tooltip>
+      )}
+      {pairing === 'Failed' && (
+        <Tooltip content={outcome?.message}>
+          <Label color="red" variant="outline">
+            Pairing failed
           </Label>
         </Tooltip>
       )}
