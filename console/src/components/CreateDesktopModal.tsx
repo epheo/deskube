@@ -18,7 +18,9 @@ import {
 } from '@patternfly/react-core';
 import { k8sCreate, useK8sModel } from '@openshift-console/dynamic-plugin-sdk';
 import { DEFAULT_IMAGE, VdiInstanceGVK } from '../constants';
-import { VdiInstance } from '../types';
+import { durationText, sizeText } from '../format';
+import { useVdiClasses } from '../hooks/useVdiClasses';
+import { VdiInstance, VdiInstanceSpec } from '../types';
 
 interface Props {
   namespace?: string;
@@ -26,7 +28,6 @@ interface Props {
 }
 
 const IDLE_OPTIONS = [
-  { value: '', label: 'Never' },
   { value: '30m', label: '30 minutes' },
   { value: '1h', label: '1 hour' },
   { value: '4h', label: '4 hours' },
@@ -43,33 +44,48 @@ const SIZES: Record<string, { label: string; cpu: string; memory: string }> = {
 
 export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onClose }) => {
   const [model] = useK8sModel(VdiInstanceGVK);
+  const [classes, classesLoaded, classesError] = useVdiClasses();
+
   const [name, setName] = useState('');
   const [namespace, setNamespace] = useState(activeNamespace ?? 'default');
-  const [image, setImage] = useState(DEFAULT_IMAGE);
-  const [size, setSize] = useState('small');
+  // Unset until the user picks, so each follows the class until then.
+  const [classChoice, setClassChoice] = useState<string>();
+  const [imageChoice, setImageChoice] = useState<string>();
+  const [sizeChoice, setSizeChoice] = useState<string>();
   const [owner, setOwner] = useState('');
   const [idleTimeout, setIdleTimeout] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const valid = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) && namespace !== '' && image.trim() !== '';
+  const className = (classChoice ?? classes[0]?.metadata?.name ?? '').trim();
+  const desktopClass = classes.find((c) => c.metadata?.name === className);
+  const image = (imageChoice ?? (className ? '' : DEFAULT_IMAGE)).trim();
+  const size = className ? sizeChoice ?? '' : sizeChoice || 'small';
+
+  const valid = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) && namespace !== '' && (className !== '' || image !== '');
 
   const submit = async () => {
     setError(null);
     setSubmitting(true);
+    const spec: VdiInstanceSpec = {
+      ...(className ? { className } : {}),
+      ...(image ? { image } : {}),
+      ...(size
+        ? {
+            resources: {
+              requests: { cpu: SIZES[size].cpu, memory: SIZES[size].memory },
+              limits: { memory: SIZES[size].memory },
+            },
+          }
+        : {}),
+      ...(owner.trim() ? { owner: owner.trim() } : {}),
+      ...(idleTimeout ? { idleTimeout } : {}),
+    };
     const desktop: VdiInstance = {
       apiVersion: 'vdi.desku.be/v1alpha1',
       kind: 'VdiInstance',
       metadata: { name, namespace },
-      spec: {
-        image: image.trim(),
-        resources: {
-          requests: { cpu: SIZES[size].cpu, memory: SIZES[size].memory },
-          limits: { memory: SIZES[size].memory },
-        },
-        ...(owner.trim() ? { owner: owner.trim() } : {}),
-        ...(idleTimeout ? { idleTimeout } : {}),
-      },
+      spec,
     };
     try {
       await k8sCreate<VdiInstance>({ model, data: desktop });
@@ -79,6 +95,9 @@ export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onCl
       setSubmitting(false);
     }
   };
+
+  const classIdle = desktopClass?.spec.idleTimeout;
+  const fromClass = (what?: string) => (desktopClass ? `From the class: ${what}` : 'From the class');
 
   return (
     <Modal variant={ModalVariant.medium} isOpen onClose={onClose} aria-label="Create desktop">
@@ -93,14 +112,45 @@ export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onCl
               <TextInput id="namespace" value={namespace} onChange={(_e, v) => setNamespace(v)} />
             </FormGroup>
           )}
-          <FormGroup label="Image" isRequired fieldId="image">
-            <TextInput id="image" value={image} onChange={(_e, v) => setImage(v)} />
+          <FormGroup label="Class" fieldId="class">
+            {classesError ? (
+              <TextInput id="class" value={classChoice ?? ''} onChange={(_e, v) => setClassChoice(v)} placeholder="desktop" />
+            ) : (
+              <FormSelect id="class" value={className} onChange={(_e, v) => setClassChoice(v)} isDisabled={!classesLoaded}>
+                {classes.map((c) => (
+                  <FormSelectOption key={c.metadata?.name} value={c.metadata?.name} label={c.metadata?.name ?? ''} />
+                ))}
+                <FormSelectOption value="" label="None, give an image" />
+              </FormSelect>
+            )}
             <HelperText>
-              <HelperTextItem>Container image of the desktop.</HelperTextItem>
+              <HelperTextItem>
+                {classesError
+                  ? 'Cannot list desktop classes. Type a class name, or leave it empty and give an image.'
+                  : classesLoaded && classes.length === 0
+                    ? 'No desktop classes yet: give an image.'
+                    : className
+                      ? 'What you set below overrides the class.'
+                      : 'The desktop takes only what you set below.'}
+              </HelperTextItem>
+            </HelperText>
+          </FormGroup>
+          <FormGroup label="Image" isRequired={!className} fieldId="image">
+            <TextInput
+              id="image"
+              value={imageChoice ?? image}
+              onChange={(_e, v) => setImageChoice(v)}
+              placeholder={desktopClass?.spec.image}
+            />
+            <HelperText>
+              <HelperTextItem>
+                {className ? "Optional. Leave empty for the class's image." : 'Container image of the desktop.'}
+              </HelperTextItem>
             </HelperText>
           </FormGroup>
           <FormGroup label="Size" fieldId="size">
-            <FormSelect id="size" value={size} onChange={(_e, v) => setSize(v)}>
+            <FormSelect id="size" value={size} onChange={(_e, v) => setSizeChoice(v)}>
+              {className && <FormSelectOption value="" label={fromClass(sizeText(desktopClass?.spec.resources) ?? 'none set')} />}
               {Object.entries(SIZES).map(([key, s]) => (
                 <FormSelectOption key={key} value={key} label={s.label} />
               ))}
@@ -114,6 +164,10 @@ export const CreateDesktopModal: FC<Props> = ({ namespace: activeNamespace, onCl
           </FormGroup>
           <FormGroup label="Stop when idle for" fieldId="idle">
             <FormSelect id="idle" value={idleTimeout} onChange={(_e, v) => setIdleTimeout(v)}>
+              <FormSelectOption
+                value=""
+                label={className ? fromClass(classIdle ? durationText(classIdle) : 'never') : 'Never'}
+              />
               {IDLE_OPTIONS.map((o) => (
                 <FormSelectOption key={o.value} value={o.value} label={o.label} />
               ))}
