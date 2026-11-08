@@ -330,6 +330,8 @@ desktop in a session keeps its pod.
 3. GPU in the pod: a device plugin or DRA handing out the render node,
    with a fixed number of desktops per GPU. A class's placement and
    runtimeClassName pick the GPU nodes and runtime.
+   On NVIDIA: [gpu-nvidia.md](gpu-nvidia.md), the design and the
+   experiments that prove it, none run yet.
 4. Sandboxes inside a desktop, which Steam needs: done as
    `spec.nestedSandboxes`, proven on OpenShift 4.22 on 2026-10-05. The
    pod gets `hostUsers: false`, UID 1000 inside its namespace,
