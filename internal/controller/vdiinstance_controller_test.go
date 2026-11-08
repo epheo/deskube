@@ -388,6 +388,49 @@ var _ = Describe("VdiInstance controller", Ordered, func() {
 		Expect(*home.Spec.StorageClassName).To(Equal("fast"))
 	})
 
+	It("gives a load balancer desktop no node ports, and frees those it held", func() {
+		nodePorts := func(svc *corev1.Service) []int32 {
+			var held []int32
+			for _, p := range svc.Spec.Ports {
+				if p.NodePort != 0 {
+					held = append(held, p.NodePort)
+				}
+			}
+			return held
+		}
+		lb := &vdiv1alpha1.VdiInstance{
+			ObjectMeta: metav1.ObjectMeta{Name: "lb", Namespace: testNS},
+			Spec: vdiv1alpha1.VdiInstanceSpec{
+				Image: testImage, Expose: vdiv1alpha1.ExposeSpec{Type: vdiv1alpha1.ExposeLoadBalancer},
+			},
+		}
+		Expect(k8sClient.Create(ctx, lb)).To(Succeed())
+		reconcile("lb")
+		svc := &corev1.Service{}
+		get("lb", svc)
+		Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeLoadBalancer))
+		Expect(*svc.Spec.AllocateLoadBalancerNodePorts).To(BeFalse())
+		Expect(nodePorts(svc)).To(BeEmpty())
+		before := svc.ResourceVersion
+		reconcile("lb")
+		get("lb", svc)
+		Expect(svc.ResourceVersion).To(Equal(before))
+
+		// An older manager left the default: a random node port per port.
+		svc.Spec.AllocateLoadBalancerNodePorts = ptr.To(true)
+		Expect(k8sClient.Update(ctx, svc)).To(Succeed())
+		get("lb", svc)
+		Expect(nodePorts(svc)).To(HaveLen(6))
+		reconcile("lb")
+		get("lb", svc)
+		Expect(*svc.Spec.AllocateLoadBalancerNodePorts).To(BeFalse())
+		Expect(nodePorts(svc)).To(BeEmpty())
+		before = svc.ResourceVersion
+		reconcile("lb")
+		get("lb", svc)
+		Expect(svc.ResourceVersion).To(Equal(before))
+	})
+
 	It("says why a desktop does not start", func() {
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: "bob-0", Namespace: testNS, Labels: map[string]string{labelInstance: "bob"}},

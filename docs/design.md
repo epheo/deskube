@@ -121,6 +121,11 @@ NodePort exposure needs one window of 27 ports per desktop:
 base-5, base, base+1, base+9, base+10, base+11, base+21.
 Bases start at 30016 and step by 32, so 86 desktops fit one cluster.
 LoadBalancer exposure uses base 47989 and one IP per desktop.
+Its Service sets `allocateLoadBalancerNodePorts: false`. By default
+each of its ports takes a random node port, and those split the
+windows. Load balancers that forward to node ports, some cloud ones,
+need them; MetalLB does not. A Service an older manager made gives its
+node ports back on the next pass.
 
 A window is free only when none of its seven ports is held by another
 desktop, allocated or pinned, or is any Service's NodePort.

@@ -179,6 +179,10 @@ or Failed, and why.
   86 desktops fit one cluster. The node firewall must allow 30000-32767
   TCP and UDP.
 - `LoadBalancer`: one IP per desktop, Moonlight's default port 47989.
+  Its Service takes no node ports: random ones would split the windows
+  NodePort desktops need. Cost: a load balancer that forwards to node
+  ports, as some cloud ones do, has nowhere to send traffic. MetalLB
+  does not need them.
 
 The operator skips any window where another desktop or any Service in
 the cluster holds one of the seven ports.

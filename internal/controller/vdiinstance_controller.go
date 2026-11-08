@@ -556,8 +556,11 @@ func (r *VdiInstanceReconciler) ensureService(
 		labelManaged(svc, vdi.Name)
 		svc.Spec.Selector = map[string]string{labelInstance: vdi.Name}
 		svc.Spec.Type = corev1.ServiceTypeNodePort
+		svc.Spec.AllocateLoadBalancerNodePorts = nil
 		if vdi.Spec.Expose.Type == vdiv1alpha1.ExposeLoadBalancer {
 			svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+			// Random node ports would split the windows NodePort desktops need.
+			svc.Spec.AllocateLoadBalancerNodePorts = ptr.To(false)
 		}
 		svc.Spec.Ports = servicePorts(vdi.Status.BasePort, svc.Spec.Type == corev1.ServiceTypeNodePort, r.webOpen(vdi))
 		return controllerutil.SetControllerReference(vdi, svc, r.Scheme)
